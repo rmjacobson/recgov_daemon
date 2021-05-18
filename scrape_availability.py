@@ -4,8 +4,8 @@
 
 from time import sleep
 import logging
-import pandas as pd
 from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
 from pandas.core.frame import DataFrame
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
@@ -50,9 +50,38 @@ def parse_html_table(table: BeautifulSoup) -> DataFrame:
     
     return df
 
-def do_stuff(url, date_str):
+def all_dates_available(df: DataFrame, start_date: datetime, num_days: int) -> bool:
     """
-    blah
+    Parse pandas DataFrame for the specific date columns matching the start date and number
+    of nights we want to stay, search for 'A' string in df cells. Return True if every column
+    has an availability (inlcuding if the daily availabilities are in different sites).
+
+    :param df: pandas DataFrame parsed from recreation.gov campground website
+    :returns: True if every relevant date column contains at least one available 'A' cell,
+        False otherwise
+    """
+    # get column names corresponding to days we want to stay at the campground
+    abbr_dates = []
+    for date in range(num_days):
+        abbr_date = start_date + timedelta(days=date)
+        abbr_date_str = abbr_date.strftime("%a%-d")
+        abbr_dates.append(abbr_date_str)
+
+    # cycle through date columns to check if there's at least one available site for each day
+    at_least_one_available = True
+    for col in df[abbr_dates].columns:
+        at_least_one_available = (df[col] == "A").any()
+        if not at_least_one_available:
+            l.debug("Found column (aka date) with no availability --> breaking")
+            break
+    l.debug("is available? %s", at_least_one_available)
+    
+    return at_least_one_available
+
+def do_stuff(url: str, start_date_str: str, num_days: int):
+    """
+    #TODO rename this function
+    #TODO add actual docstring when this function does everything we need it to do
     """
     input_tag_name = "single-date-picker-1"
     availability_table_tag_name = "availability-table"
@@ -67,7 +96,7 @@ def do_stuff(url, date_str):
         #   https://selenium-python.readthedocs.io/api.html#module-selenium.webdriver.common.keys
         #   https://stackoverflow.com/a/27799120
         date_input.send_keys(Keys.COMMAND + "a")
-        date_input.send_keys(date_str)
+        date_input.send_keys(start_date_str)
         date_input.send_keys(Keys.RETURN)
         sleep(5)
 
@@ -75,7 +104,12 @@ def do_stuff(url, date_str):
         table_html = availability_table.get_attribute('outerHTML')
         soup = BeautifulSoup(table_html, 'html.parser')
         df = parse_html_table(soup)
-        print(df)
+        
+        start_date = datetime.strptime(start_date_str, '%m/%d/%Y')
+        if all_dates_available(df, start_date, num_days):
+            l.info("WE HAVE SOMETHING AVAILABLE!")
+        else:
+            l.info("sad")
     except Exception as e:
         l.critical(print(traceback.format_exc()))
     finally:
@@ -83,6 +117,9 @@ def do_stuff(url, date_str):
         driver.close()
 
 if __name__ == "__main__":
-    kirk_creek = "https://www.recreation.gov/camping/campgrounds/233116/availability"
-    date_str = "09/19/2021"
-    do_stuff(kirk_creek, date_str)
+    # kirk_creek = "https://www.recreation.gov/camping/campgrounds/233116/availability"
+    mcgill = "https://www.recreation.gov/camping/campgrounds/231962/availability"
+    # kirk_start_date_str = "09/17/2021"
+    mcgill_start_date_str = "05/31/2021"
+    num_days = 2
+    do_stuff(mcgill, mcgill_start_date_str, num_days)
