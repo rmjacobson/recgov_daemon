@@ -20,6 +20,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 INPUT_TAG_NAME = "single-date-picker-1"
 AVAILABILITY_TABLE_TAG_NAME = "availability-table"
 CAMP_LOCATION_NAME_ICON = "camp-location-name--icon"
+PAGE_LOAD_WAIT = 5
 
 def parse_html_table(table: BeautifulSoup) -> DataFrame:
     """
@@ -110,12 +111,12 @@ def scrape_campground(driver: WebDriver, url: str, start_date: datetime, num_day
     """
     try:
         driver.get(url)
-        sleep(3)    # allow the page to fully load before looking at tags
+        sleep(PAGE_LOAD_WAIT)    # allow the page to fully load before looking at tags
         date_input = driver.find_element_by_id(INPUT_TAG_NAME)
         date_input.send_keys(Keys.COMMAND + "a")
         date_input.send_keys(start_date.strftime("%m/%d/%Y"))
         date_input.send_keys(Keys.RETURN)
-        sleep(5)    # allow new data to load in the table
+        sleep(PAGE_LOAD_WAIT)    # allow new data to load in the table
         availability_table = driver.find_element_by_id(AVAILABILITY_TABLE_TAG_NAME)
         table_html = availability_table.get_attribute('outerHTML')
         soup = BeautifulSoup(table_html, 'html.parser')

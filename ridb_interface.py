@@ -16,6 +16,7 @@ import requests
 # l = logging.getLogger(__name__)
 # l.setLevel(logging.INFO)
 
+# set in ~/.virtualenvs/recgov_daemon/bin/postactivate
 API_KEY = os.environ.get("ridb_api_key")
 RIDB_BASE_URL = "https://ridb.recreation.gov/api/v1/facilities"
 RECDATA_ELEM = "RECDATA"

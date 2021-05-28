@@ -6,9 +6,13 @@ from signal import signal, SIGINT
 import json
 import logging
 import argparse
+import smtplib
+import ssl
+import os
 from datetime import datetime
 from typing import List
 from time import sleep
+from email.message import EmailMessage
 from selenium.webdriver.chrome.webdriver import WebDriver
 from scrape_availability import create_selenium_driver, scrape_campground
 from ridb_interface import get_facilities_from_ridb
@@ -20,19 +24,62 @@ logging.basicConfig(
 )
 l = logging.getLogger(__name__)
 
+# set in ~/.virtualenvs/recgov_daemon/bin/postactivate
+GMAIL_USER = os.environ.get("gmail_user")
+GMAIL_PASSWORD = os.environ.get("gmail_password")
 RETRY_WAIT = 300
 
-def exit_gracefully(signal_received, frame, driver: WebDriver=None):
+def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None):
     """
     Handler for SIGINT that will close webdriver carefully if necessary.
+    Ref: https://www.devdungeon.com/content/python-catch-sigint-ctrl-c
+         https://docs.python.org/3/library/signal.html
+
+    :param signal_received: signal object received by handler
+    :param frame: actually have no idea what this is and we never use it...
+    :param driver: Selenium WebDriver to close before exiting
+    :returns: N/A
     """
     if signal_received is not None:
         l.critical("Received CTRL-C or SIGNINT; exiting gracefully by closing WebDriver if it has been initialized.")
     else:
         l.critical("Exiting gracefully by closing WebDriver if it has been initialized.")
-    if driver is not None:
-        driver.close()
+    if close_this_driver is not None:
+        close_this_driver.close()
     sys.exit(0)
+
+def send_email_alert(available_campgrounds: CampgroundList):
+    """
+    Send email alert to email address provided by argparse, from email address (and password)
+    retrieved from environment variables. Currently use Google Mail to facilitate email
+    alerts. See references:
+        https://zetcode.com/python/smtplib/
+        https://realpython.com/python-send-email/#option-1-using-smtp_ssl
+        https://docs.python.org/3/library/smtplib.html
+
+    :param available_campgrounds: CampgroundList object containing available campgrounds
+        found in caller
+    :returns: N/A
+    """
+    l.info("Sending email alert for %d available campgrounds.", len(available_campgrounds))
+
+    msg = EmailMessage()
+    msg["From"] = GMAIL_USER
+    msg["To"] = args.email
+    msg["Subject"] = f"Alert for {len(available_campgrounds)} Available Campground on Recreation.gov"
+    content = "The following campgrounds are now available!  Please excuse ugly JSON formatting.\n"
+    content += json.dumps(available_campgrounds.serialize(), indent=4)
+    msg.set_content(content)
+
+    try:
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+            server.ehlo()
+            server.login(GMAIL_USER, GMAIL_PASSWORD)
+            server.send_message(msg)
+        l.info("Email sent!")
+    except Exception as e:
+        l.error("FAILURE: could not send email due to the following exception:\n%s",e)
 
 def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=None) -> CampgroundList:
     """
@@ -79,14 +126,20 @@ def compare_availability(selenium_driver: WebDriver, campground_list: Campground
     :param campgrounds: list of Campground objects we want to check against
     :returns: #TODO
     """
+    available = CampgroundList()
     for campground in campground_list:
         if campground.available:
             logging.info("Skipping %s because an available site was already found", campground.name)
-        elif not campground.available and scrape_campground(selenium_driver, campground.url, start_date, num_days):
+        elif (not campground.available and scrape_campground(selenium_driver, campground.url, start_date, num_days)):
+            logging.info("%s is now available! Adding to email list.", campground.name)
             campground.available = True
-            logging.info("%s is now available! Sending notification email.", campground.name)
+            available.append(campground)
+            l.info("Adding %s", json.dumps(available.serialize()))
         else:
             logging.info("%s is not available, trying again in %s seconds", campground.name, RETRY_WAIT)
+
+    if len(available) > 0:
+        send_email_alert(available)
 
 def parse_start_day(arg: str) -> datetime:
     """
@@ -128,6 +181,8 @@ if __name__ == "__main__":
         help="First day you want to reserve a site, represented as Month/Day/Year (e.g. 05/19/2021).")
     parser.add_argument("-n", "--num_days", type=int, required=True,
         help="Number of days you want to camp (e.g. 2).")
+    parser.add_argument("-e", "--email", type=str, required=True,
+        help="Email address at which you want to receive notifications (ex: first.last@example.com).")
     parser.add_argument("--lat", type=float,
         help="Latitude of location you want to search for (e.g. 35.994431 for Ponderosa Campground).")
     parser.add_argument("--lon", type=float,
@@ -141,7 +196,6 @@ if __name__ == "__main__":
     # validate lat/lon/radius arguments prior to checking RIDB and forming CampgroundList
     ridb_args = {args.lat, args.lon, args.radius}
     ridb_facilities = None
-    # logging.debug("len ridb_args = %s, %s", len(ridb_args), ridb_args)
     if None not in ridb_args:
         ridb_facilities = get_facilities_from_ridb(args.lat, args.lon, args.radius)
     elif None in ridb_args and (args.lat is not None or args.lon is not None or args.radius is not None):
@@ -150,7 +204,7 @@ if __name__ == "__main__":
         raise ValueError(RIDB_ARGS_ERROR_MSG)
 
     campgrounds = get_all_campgrounds_by_id(args.campground_ids, ridb_facilities)
-    print(json.dumps(campgrounds.serialize(), indent=2))
+    l.info(json.dumps(campgrounds.serialize(), indent=2))
 
     driver = create_selenium_driver()
 
