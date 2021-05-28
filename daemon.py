@@ -1,11 +1,14 @@
 """
 #TODO add module description
 """
+import sys
+from signal import signal, SIGINT
 import json
 import logging
 import argparse
 from datetime import datetime
 from typing import List
+from time import sleep
 from selenium.webdriver.chrome.webdriver import WebDriver
 from scrape_availability import create_selenium_driver, scrape_campground
 from ridb_interface import get_facilities_from_ridb
@@ -18,6 +21,18 @@ logging.basicConfig(
 l = logging.getLogger(__name__)
 
 RETRY_WAIT = 300
+
+def exit_gracefully(signal_received, frame, driver: WebDriver=None):
+    """
+    Handler for SIGINT that will close webdriver carefully if necessary.
+    """
+    if signal_received is not None:
+        l.critical("Received CTRL-C or SIGNINT; exiting gracefully by closing WebDriver if it has been initialized.")
+    else:
+        l.critical("Exiting gracefully by closing WebDriver if it has been initialized.")
+    if driver is not None:
+        driver.close()
+    sys.exit(0)
 
 def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=None) -> CampgroundList:
     """
@@ -96,6 +111,7 @@ def parse_id_args(arg: str) -> List[str]:
     return None
 
 if __name__ == "__main__":
+    signal(SIGINT, exit_gracefully)
     # kirk_creek = "https://www.recreation.gov/camping/campgrounds/233116/availability"
     # mcgill = "https://www.recreation.gov/camping/campgrounds/231962/availability"
     # kirk_start_date_str = "09/17/2021"
@@ -137,12 +153,15 @@ if __name__ == "__main__":
     print(json.dumps(campgrounds.serialize(), indent=2))
 
     driver = create_selenium_driver()
-    compare_availability(driver, campgrounds, args.start_date, args.num_days)
-    driver.close()
+
+    # use this section for one-time check of campgrounds
+    # compare_availability(driver, campgrounds, args.start_date, args.num_days)
+    # driver.close()
 
     # check campground availability until stopped by user or start_date has passed
-    # while True:
-    #     if args.start_date < datetime.now():
-    #         exit()
-    #     compare_availability(campgrounds, args.start_date, args.num_days)
-    #     sleep(RETRY_WAIT)  # sleep for RETRY_WAIT time before checking campgrounds again
+    while True:
+        if args.start_date < datetime.now():
+            l.info("Desired start date has passed, ending process...")
+            exit_gracefully(None, None, driver)
+        compare_availability(driver, campgrounds, args.start_date, args.num_days)
+        sleep(RETRY_WAIT)  # sleep for RETRY_WAIT time before checking campgrounds again

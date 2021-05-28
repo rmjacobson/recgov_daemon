@@ -89,7 +89,7 @@ def create_selenium_driver() -> WebDriver:
     :returns: Selenium WebDriver object
     """
     options = webdriver.ChromeOptions()
-    # options.add_argument("--headless")
+    options.add_argument("--headless")
     return webdriver.Chrome(ChromeDriverManager().install(), options=options)
 
 def scrape_campground(driver: WebDriver, url: str, start_date: datetime, num_days: int) -> bool:
