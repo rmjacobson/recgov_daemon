@@ -13,7 +13,7 @@ from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.keys import Keys
 from webdriver_manager.chrome import ChromeDriverManager
 
-# l = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # tag names needed for html interaction/parsing found via manual inspection of
 # recreation.gov -- DO NOT CHANGE unless recreation.gov changes its layout!
@@ -77,7 +77,7 @@ def all_dates_available(df: DataFrame, start_date: datetime, num_days: int) -> b
     for col in df[abbr_dates].columns:
         at_least_one_available = (df[col] == "A").any()
         if not at_least_one_available:
-            logging.info("Found column (aka date) with no availability --> stopping search of table")
+            logger.debug("Found column (aka date) with no availability --> stopping search of table")
             break
 
     return at_least_one_available
@@ -110,21 +110,25 @@ def scrape_campground(driver: WebDriver, url: str, start_date: datetime, num_day
     :returns: True if start_date/num_days are available, False otherwise
     """
     try:
+        logger.debug("\tGetting URL (%s) with driver", url)
         driver.get(url)
         sleep(PAGE_LOAD_WAIT)    # allow the page to fully load before looking at tags
+        logger.debug("\tFinding input box tag")
         date_input = driver.find_element_by_id(INPUT_TAG_NAME)
+        logger.debug("\tSending new date with send_keys")
         date_input.send_keys(Keys.COMMAND + "a")
         date_input.send_keys(start_date.strftime("%m/%d/%Y"))
         date_input.send_keys(Keys.RETURN)
         sleep(PAGE_LOAD_WAIT)    # allow new data to load in the table
+        logger.debug("\tFinding availability table tag")
         availability_table = driver.find_element_by_id(AVAILABILITY_TABLE_TAG_NAME)
         table_html = availability_table.get_attribute('outerHTML')
         soup = BeautifulSoup(table_html, 'html.parser')
         df = parse_html_table(soup)
         return all_dates_available(df, start_date, num_days)
     except Exception as e:
-        logging.critical(e)
-        logging.critical(print(traceback.format_exc()))
+        logger.exception(e)
+        logger.exception(str(traceback.format_exc()))
         return False
 
 if __name__ == "__main__":
@@ -137,6 +141,6 @@ if __name__ == "__main__":
     driver = create_selenium_driver()
     # scrape_campground(mcgill, mcgill_start_date_str, num_days)
     if scrape_campground(driver, mcgill, mcgill_start_date_str, num_days):
-        logging.info("WE HAVE SOMETHING AVAILABLE!")
+        logger.info("WE HAVE SOMETHING AVAILABLE!")
     else:
-        logging.info("sad")
+        logger.info("sad")

@@ -5,6 +5,7 @@ import sys
 from signal import signal, SIGINT
 import json
 import logging
+from logging.handlers import TimedRotatingFileHandler
 import argparse
 import smtplib
 import ssl
@@ -18,11 +19,42 @@ from scrape_availability import create_selenium_driver, scrape_campground
 from ridb_interface import get_facilities_from_ridb
 from campground import Campground, CampgroundList
 
+"""
+Note on logging:
+Python 3 logging is annoyingly confusing because of how inheiritance from the root logger works
+and how multiple modules all need to log to the same file. It's also annoying that no tutorial
+or official doc agrees on what is "best practice" between manually naming the loggers across
+modules vs. using __name__, or whether or not it's best practice to create config/ini files, etc.
+
+For this project, I have chosen to programatically configure logging as below, using basicConfig
+to also reconfigure the root logger (which affects Selenium mostly), and have other modules get
+configs from here by just using getLogger in those files because it is the simplest thing I've
+tried that actually works as needed. The log:
+  - is set to INFO by default
+  - rotates to a new file every day
+  - will save logs for 7 days max
+  - saves to a local logs/ directory inside this repo (excluded from git) because doing so
+    elsewhere does not guarantee user will have permissions to create files
+
+Refs used to create this:
+  - https://gist.github.com/gene1wood/73b715434c587d2240c21fc83fad7962
+  - https://timber.io/blog/the-pythonic-guide-to-logging/
+Ref for format:
+  - https://www.pylenin.com/blogs/python-logging-guide/#configuring-a-main-logger
+Ref for file config (not used):
+  - https://www.internalpointers.com/post/logging-python-sub-modules-and-configuration-files
+  - http://antonym.org/2005/03/a-real-python-logging-example.html
+Generic Logging Principles:
+  - https://peter.bourgon.org/blog/2017/02/21/metrics-tracing-and-logging.html
+"""
+rotating_handler = handler = TimedRotatingFileHandler("logs/recgov.log", when="d", interval=1,  backupCount=5)
+rotating_handler.suffix = "%Y-%m-%d"
 logging.basicConfig(
+    handlers=[rotating_handler],
     level=logging.INFO,
-    format="[%(asctime)s] %(filename)s:%(lineno)d [%(name)s] %(levelname)s - %(message)s",
+    format="[%(asctime)s] %(filename)s:%(lineno)d [%(name)s]%(levelname)s - %(message)s",
 )
-l = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # set in ~/.virtualenvs/recgov_daemon/bin/postactivate
 GMAIL_USER = os.environ.get("gmail_user")
@@ -40,10 +72,7 @@ def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None):
     :param driver: Selenium WebDriver to close before exiting
     :returns: N/A
     """
-    if signal_received is not None:
-        l.critical("Received CTRL-C or SIGNINT; exiting gracefully by closing WebDriver if it has been initialized.")
-    else:
-        l.critical("Exiting gracefully by closing WebDriver if it has been initialized.")
+    logger.info("Received CTRL-C/SIGNINT or daemon completed; exiting gracefully/closing WebDriver if initialized.")
     if close_this_driver is not None:
         close_this_driver.close()
     sys.exit(0)
@@ -61,7 +90,7 @@ def send_email_alert(available_campgrounds: CampgroundList):
         found in caller
     :returns: N/A
     """
-    l.info("Sending email alert for %d available campgrounds.", len(available_campgrounds))
+    logger.info("Sending email alert for %d available campgrounds to %s.", len(available_campgrounds), args.email)
 
     msg = EmailMessage()
     msg["From"] = GMAIL_USER
@@ -77,9 +106,9 @@ def send_email_alert(available_campgrounds: CampgroundList):
             server.ehlo()
             server.login(GMAIL_USER, GMAIL_PASSWORD)
             server.send_message(msg)
-        l.info("Email sent!")
+        logger.debug("\tEmail sent!")
     except Exception as e:
-        l.error("FAILURE: could not send email due to the following exception:\n%s",e)
+        logger.error("FAILURE: could not send email due to the following exception:\n%s",e)
 
 def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=None) -> CampgroundList:
     """
@@ -99,7 +128,7 @@ def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=No
         ridb_facs_ids = [id[1] for id in ridb_facs]
         for u_fac in user_facs:
             if u_fac[1] in ridb_facs_ids:
-                logging.debug("Removing facility ID %s from user_facs because \
+                logger.debug("\tRemoving facility ID %s from user_facs because \
                     it is already present in ridb_facs list", u_fac[1])
                 user_facs.remove(u_fac)
         facilities = user_facs + ridb_facs
@@ -112,7 +141,7 @@ def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=No
 
     # combine facilities lists and create campground objects for each facility in the list
     for facility in facilities:
-        logging.debug("Creating Campground obect for facility id: %s", facility[1])
+        logger.debug("\tCreating Campground obect for facility id: %s", facility[1])
         camp = Campground(name=facility[0], facility_id=facility[1])
         campgrounds_from_facilities.append(camp)
 
@@ -128,15 +157,17 @@ def compare_availability(selenium_driver: WebDriver, campground_list: Campground
     """
     available = CampgroundList()
     for campground in campground_list:
+        logger.debug("\tComparing availability for %s (%s)", campground.name, campground.id)
         if campground.available:
-            logging.info("Skipping %s because an available site was already found", campground.name)
+            logger.debug("Skipping %s (%s) because an available site was already found", campground.name, campground.id)
         elif (not campground.available and scrape_campground(selenium_driver, campground.url, start_date, num_days)):
-            logging.info("%s is now available! Adding to email list.", campground.name)
+            logger.info("%s (%s) is now available! Adding to email list.", campground.name, campground.id)
             campground.available = True
             available.append(campground)
-            l.info("Adding %s", json.dumps(available.serialize()))
+            logger.debug("\tAdding the following to available list %s", json.dumps(campground.jsonify()))
         else:
-            logging.info("%s is not available, trying again in %s seconds", campground.name, RETRY_WAIT)
+            logger.info("%s (%s) is not available, trying again in %s seconds",
+                campground.name, campground.id, RETRY_WAIT)
 
     if len(available) > 0:
         send_email_alert(available)
@@ -204,7 +235,7 @@ if __name__ == "__main__":
         raise ValueError(RIDB_ARGS_ERROR_MSG)
 
     campgrounds = get_all_campgrounds_by_id(args.campground_ids, ridb_facilities)
-    l.info(json.dumps(campgrounds.serialize(), indent=2))
+    logger.info(json.dumps(campgrounds.serialize(), indent=2))
 
     driver = create_selenium_driver()
 
@@ -215,7 +246,7 @@ if __name__ == "__main__":
     # check campground availability until stopped by user or start_date has passed
     while True:
         if args.start_date < datetime.now():
-            l.info("Desired start date has passed, ending process...")
+            logger.info("Desired start date has passed, ending process...")
             exit_gracefully(None, None, driver)
         compare_availability(driver, campgrounds, args.start_date, args.num_days)
         sleep(RETRY_WAIT)  # sleep for RETRY_WAIT time before checking campgrounds again
