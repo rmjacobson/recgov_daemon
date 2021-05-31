@@ -12,9 +12,7 @@ import logging
 import os
 import requests
 
-# log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-# l = logging.getLogger(__name__)
-# l.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 # set in ~/.virtualenvs/recgov_daemon/bin/postactivate
 API_KEY = os.environ.get("ridb_api_key")
@@ -50,7 +48,7 @@ def get_facilities_from_ridb(latitude: float, longitude: float, radius: int):
         "limit": 20
     }
 
-    # Gets campgrounds from RIDB API
+    logger.debug("\tUse requests library to retrieve facilities from RIDB API")
     resp = requests.get(RIDB_BASE_URL, headers=headers, params=facilities_query)
     if not resp.ok:
         raise ValueError("Unable to access RIDB API. Check connection and API key.")
@@ -59,7 +57,7 @@ def get_facilities_from_ridb(latitude: float, longitude: float, radius: int):
     except KeyError as err:
         err_msg  = "No %s field in %s element. Check RIDB API specs."
         raise KeyError(err_msg.format(FACILITY_TYPE_FIELD, RECDATA_ELEM)) from err
-    logging.info("Received %d results from RIDB, parsing campground info...", len(res))
+    logger.info("Received %d results from RIDB, parsing campground info...", len(res))
 
     # Construct list of campground names/facility IDs from ridb response
     facilities = []
@@ -71,7 +69,7 @@ def get_facilities_from_ridb(latitude: float, longitude: float, radius: int):
         except KeyError as err:
             err_msg = "No %s or %s field in campground dict. Check RIDB API specs."
             raise KeyError(err_msg.format(FACILITY_ID_FIELD, FACILITY_NAME_FIELD)) from err
-    logging.info("Parsed %d facilities from %d RIDB results", len(facilities), len(res))
+    logger.info("Parsed %d facilities from %d RIDB results", len(facilities), len(res))
 
     return facilities
 
