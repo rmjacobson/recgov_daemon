@@ -74,7 +74,9 @@ def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None):
     """
     logger.info("Received CTRL-C/SIGNINT or daemon completed; exiting gracefully/closing WebDriver if initialized.")
     if close_this_driver is not None:
-        close_this_driver.close()
+        # use quit instead of close to avoid tons of leftover chrome processes
+        # https://stackoverflow.com/questions/15067107/difference-between-webdriver-dispose-close-and-quit
+        close_this_driver.quit()
     sys.exit(0)
 
 def send_email_alert(available_campgrounds: CampgroundList):
