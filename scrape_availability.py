@@ -2,7 +2,6 @@
 #TODO add module description
 """
 
-from campground import Campground
 from time import sleep
 import logging
 import traceback
@@ -13,6 +12,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.keys import Keys
 from webdriver_manager.chrome import ChromeDriverManager
+from campground import Campground
 
 logger = logging.getLogger(__name__)
 
