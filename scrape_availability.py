@@ -128,9 +128,9 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
         campground.error_count = 0      # if not errored -> reset error count to 0
         return dates_available
     except Exception as e:
-        logger.exception(e)
-        logger.exception(str(traceback.format_exc()))
         campground.error_count += 1     # if errored -> inc error count
+        logger.exception("Campground %s (%s) parsing error!\n%s", campground.name, campground.id, e)
+        logger.exception(str(traceback.format_exc()))
         return False
 
 if __name__ == "__main__":

@@ -19,17 +19,13 @@ class Campground():
         self.error_count = 0                                        # initialize parsing error count to 0
         # self.campsites = {}     # #TODO: develop way of storing available specific campsites
 
-    def print(self):
+    def pretty(self):
         """
-        Pretty print Campground information.
+        Create string to pretty print Campground information.
         """
-        print("Campground")
-        print(f"\t{self.name}")
-        print(f"\t{self.id}")
-        print(f"\t{self.url}")
-        print(f"\t{self.available}")
-        print(f"\t{self.error_count}")
-        # print(f"\t{self.campsites}")
+        # add self.campsites when available
+        return f"Campground:\n\t{self.name}\n\t{self.id}\n\t{self.url}\n\t{self.available}\n\t{self.error_count}"
+
     def jsonify(self):
         """
         Returns JSON representation of this object, as a dict
