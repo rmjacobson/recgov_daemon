@@ -1,5 +1,8 @@
 """
-#TODO add module description
+scrape_availability.py
+
+Webpage interface for recov daemon. Responsible for interacting with recreation.gov via selenium
+webdriver and with beautifulsoup after selenium has retrieved the availability table.
 """
 
 from time import sleep

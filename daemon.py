@@ -1,5 +1,8 @@
 """
-#TODO add module description
+daemon.py
+
+Main module for recgov daemon. Runs scrape_availabilty methods in a loop to detect new availability
+for a list of campgrounds provided by the user or found in RIDB search.
 """
 import sys
 from signal import signal, SIGINT
@@ -59,7 +62,7 @@ logger = logging.getLogger(__name__)
 # set in ~/.virtualenvs/recgov_daemon/bin/postactivate
 GMAIL_USER = os.environ.get("gmail_user")
 GMAIL_PASSWORD = os.environ.get("gmail_password")
-RETRY_WAIT = 20
+RETRY_WAIT = 300
 
 def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None):
     """
@@ -149,13 +152,13 @@ def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=No
 
     return campgrounds_from_facilities
 
-def compare_availability(selenium_driver: WebDriver, campground_list: CampgroundList, start_date, num_days):
+def compare_availability(selenium_driver: WebDriver, campground_list: CampgroundList, start_date, num_days) -> None:
     """
     Given a list of Campground objects, find out if any campgrounds' availability has changed
     since the last time we looked.
 
     :param campgrounds: list of Campground objects we want to check against
-    :returns: #TODO
+    :returns: N/A
     """
     available = CampgroundList()
     for campground in campground_list:
@@ -215,7 +218,9 @@ if __name__ == "__main__":
     # LON = -121.394325
     # RADIUS = 20
 
-    parser = argparse.ArgumentParser(description="#TODO")
+    ARG_DESC = """Daemon to check recreation.gov and RIDB for new campground availability and send notification email
+        when new availability found."""
+    parser = argparse.ArgumentParser(description=ARG_DESC)
     parser.add_argument("-s", "--start_date", type=parse_start_day, required=True,
         help="First day you want to reserve a site, represented as Month/Day/Year (e.g. 05/19/2021).")
     parser.add_argument("-n", "--num_days", type=int, required=True,
