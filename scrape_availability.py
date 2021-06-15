@@ -33,8 +33,6 @@ def parse_html_table(table: BeautifulSoup) -> DataFrame:
     recgov_row_tags = ['td', 'th']
 
     # get column names from the "second" row of the <thead> tag because the "first" row just contains the month string
-    # header_tag = table.find("thead")
-    # column_tags = header_tag.find_all("tr")
     column_tags = table.find("thead").find_all("tr")
     columns = column_tags[1].find_all('th')
     if len(columns) > 0 and len(column_names) == 0:
@@ -133,13 +131,12 @@ def scrape_campground(driver: WebDriver, url: str, start_date: datetime, num_day
 
 if __name__ == "__main__":
     # kirk_creek = "https://www.recreation.gov/camping/campgrounds/233116/availability"
-    mcgill = "https://www.recreation.gov/camping/campgrounds/231962/availability"
     # kirk_start_date_str = "09/17/2021"
+    mcgill = "https://www.recreation.gov/camping/campgrounds/231962/availability"
     mcgill_start_date_str = "05/31/2021"
     num_days = 2
 
     driver = create_selenium_driver()
-    # scrape_campground(mcgill, mcgill_start_date_str, num_days)
     if scrape_campground(driver, mcgill, mcgill_start_date_str, num_days):
         logger.info("WE HAVE SOMETHING AVAILABLE!")
     else:
