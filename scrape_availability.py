@@ -2,6 +2,7 @@
 #TODO add module description
 """
 
+from campground import Campground
 from time import sleep
 import logging
 import traceback
@@ -91,7 +92,7 @@ def create_selenium_driver() -> WebDriver:
     options.add_argument("--headless")
     return webdriver.Chrome(ChromeDriverManager().install(), options=options)
 
-def scrape_campground(driver: WebDriver, url: str, start_date: datetime, num_days: int) -> bool:
+def scrape_campground(driver: WebDriver, campground: Campground, start_date: datetime, num_days: int) -> bool:
     """
     Use Selenium WebDriver to load page, input desired start date, identify availability table
     for new data, use BeautifulSoup to parse html table, and use pandas DataFrame to identify
@@ -102,14 +103,14 @@ def scrape_campground(driver: WebDriver, url: str, start_date: datetime, num_day
         https://stackoverflow.com/a/27799120
 
     :param driver: WebDriver object previously instantiated
-    :param url: str to load with the driver
+    :param campground: Campground object; url field will be loaded with driver
     :param start_date: datetime object identifying the date user wishes to arrive at campground
     :param num_days: int representation of number of nights user wishes to stay at campground
     :returns: True if start_date/num_days are available, False otherwise
     """
     try:
-        logger.debug("\tGetting URL (%s) with driver", url)
-        driver.get(url)
+        logger.debug("\tGetting campground.url (%s) with driver", campground.url)
+        driver.get(campground.url)
         sleep(PAGE_LOAD_WAIT)    # allow the page to fully load before looking at tags
         logger.debug("\tFinding input box tag")
         date_input = driver.find_element_by_id(INPUT_TAG_NAME)
@@ -123,10 +124,13 @@ def scrape_campground(driver: WebDriver, url: str, start_date: datetime, num_day
         table_html = availability_table.get_attribute('outerHTML')
         soup = BeautifulSoup(table_html, 'html.parser')
         df = parse_html_table(soup)
-        return all_dates_available(df, start_date, num_days)
+        dates_available = all_dates_available(df, start_date, num_days)
+        campground.error_count = 0      # if not errored -> reset error count to 0
+        return dates_available
     except Exception as e:
         logger.exception(e)
         logger.exception(str(traceback.format_exc()))
+        campground.error_count += 1     # if errored -> inc error count
         return False
 
 if __name__ == "__main__":

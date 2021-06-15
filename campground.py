@@ -16,6 +16,7 @@ class Campground():
         self.id = facility_id                                       # facility ID of campground
         self.url = f"{RECGOV_BASE_URL}/{facility_id}/availability"  # recreation.gov URL for campground
         self.available = False                                      # initialize to unavailable
+        self.error_count = 0                                        # initialize parsing error count to 0
         # self.campsites = {}     # #TODO: develop way of storing available specific campsites
 
     def print(self):
@@ -27,6 +28,7 @@ class Campground():
         print(f"\t{self.id}")
         print(f"\t{self.url}")
         print(f"\t{self.available}")
+        print(f"\t{self.error_count}")
         # print(f"\t{self.campsites}")
     def jsonify(self):
         """
@@ -36,7 +38,8 @@ class Campground():
             "name": self.name,
             "facilityID": self.id,
             "url": self.url,
-            "available": self.available
+            "available": self.available,
+            "error_count": self.error_count
             # "campsites": []
         }
         return json

@@ -161,7 +161,7 @@ def compare_availability(selenium_driver: WebDriver, campground_list: Campground
     for campground in campground_list:
         logger.debug("\tComparing availability for %s (%s)", campground.name, campground.id)
         if campground.available:
-            logger.debug("Skipping %s (%s) because an available site was already found", campground.name, campground.id)
+            logger.debug("Skipping %s (%s) because an available site already found", campground.name, campground.id)
         elif (not campground.available and scrape_campground(selenium_driver, campground.url, start_date, num_days)):
             logger.info("%s (%s) is now available! Adding to email list.", campground.name, campground.id)
             campground.available = True
@@ -170,6 +170,12 @@ def compare_availability(selenium_driver: WebDriver, campground_list: Campground
         else:
             logger.info("%s (%s) is not available, trying again in %s seconds",
                 campground.name, campground.id, RETRY_WAIT)
+
+        # if campground parsing has errored more than 5 times in a row, remove it from the CampgroundList
+        if campground.error_count > 5:
+            err_msg = f"Campground errored more than 5 times in a row, removing it from list:\n{campground.print()}"
+            logger.error(err_msg)
+            campground_list.remove(campground)
 
     if len(available) > 0:
         send_email_alert(available)
