@@ -8,9 +8,13 @@ After cloning this repo, follow the below steps to create a virtual environment 
 
 1. Use `virtualenvwrapper` to make a new Python 3 Virtual Environment. See [the official guide](https://virtualenvwrapper.readthedocs.io/en/latest/install.html#basic-installation) or [this easier-to-follow guide](https://medium.com/@gitudaniel/installing-virtualenvwrapper-for-python3-ad3dfea7c717) for details.
 2. Run `workon <virtualenvname>` to activate venv.
-3. Run `pip3 install -r requirements.txt` to install required packages.
-4. Run `mkdir logs` (or equivalent command on Windows) to create directory for log files.
-5. Set environment variables for `ridb_api_key`, `gmail_user` and `gmail_password` -- these are required to connect to the RIDB API and to the email account you wish to use as a notification-sender. Note that you can automate this inside the `virtualenvwrapper` setup by editing the `/path/to/virtualenvs/config/dir/<virtualenvname>/bin/postactivate` file.
+3. Install Chrome browser + Selenium webdriver
+    - TODO: provide instructions for this (`sudo apt install chromium-chromedriver`)
+    - <https://www.srcmake.com/home/selenium-python-chromedriver-ubuntu>
+    - <https://ivanderevianko.com/2020/01/selenium-chromedriver-for-raspberrypi>
+4. Run `pip3 install -r requirements.txt` to install required packages.
+5. Run `mkdir logs` (or equivalent command on Windows) to create directory for log files.
+6. Set environment variables for `ridb_api_key`, `gmail_user` and `gmail_password` -- these are required to connect to the RIDB API and to the email account you wish to use as a notification-sender. Note that you can automate this inside the `virtualenvwrapper` setup by editing the `/path/to/virtualenvs/config/dir/<virtualenvname>/bin/postactivate` file.
 
 ## Running the daemon
 
@@ -56,6 +60,9 @@ This project involved a lot of googling.  For easy viewing, see the sections for
   - <https://selenium-python.readthedocs.io/api.html#module-selenium.webdriver.common.keys>
   - <https://stackoverflow.com/a/27799120>
 - Difference between quitting and closing a selenium webdriver: <https://stackoverflow.com/questions/15067107/difference-between-webdriver-dispose-close-and-quit>
+- Selenium waiting for elements to load/appear
+  - <https://www.guru99.com/implicit-explicit-waits-selenium.html> -- explanation of selenium wait types
+  - <https://stackoverflow.com/a/29084080> -- wait for element to *not* be visible
 
 ### Logging
 

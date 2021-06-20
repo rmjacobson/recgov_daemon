@@ -14,17 +14,25 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
+import platform
 from campground import Campground
 
 logger = logging.getLogger(__name__)
+OS_BASE = platform.system()
 
 # tag names needed for html interaction/parsing found via manual inspection of
 # recreation.gov -- DO NOT CHANGE unless recreation.gov changes its layout!
 INPUT_TAG_NAME = "single-date-picker-1"
 AVAILABILITY_TABLE_TAG_NAME = "availability-table"
+TABLE_LOADING_TAG_CLASS = "rec-table-overlay"
 CAMP_LOCATION_NAME_ICON = "camp-location-name--icon"
-PAGE_LOAD_WAIT = 5
+AVAILABILITY_TABLE_REFRESH_XPATH = """//*[@id="page-body"]/div/div[1]/div[1]/div[3]/div[1]/div[1]/div/div/button[1]"""
+PAGE_LOAD_WAIT = 60
 
 def parse_html_table(table: BeautifulSoup) -> DataFrame:
     """
@@ -54,7 +62,7 @@ def parse_html_table(table: BeautifulSoup) -> DataFrame:
             if icon is not None:
                 icon.decompose()
             df.iat[r,c] = cell.get_text()
-
+    # print(df)
     return df
 
 def all_dates_available(df: DataFrame, start_date: datetime, num_days: int) -> bool:
@@ -87,13 +95,36 @@ def all_dates_available(df: DataFrame, start_date: datetime, num_days: int) -> b
 def create_selenium_driver() -> WebDriver:
     """
     Initialize Selenium WebDriver object and return it to the caller. Do this in a separate
-    function to allow driver re-use across rounds of scraping.
+    function to allow driver re-use across rounds of scraping.  Note: the remote debugging port
+    option seems to be required for raspberry pi operation: https://stackoverflow.com/a/56638103
+
+    TODO: haven't tested the remote debugging port on mac yet
 
     :returns: Selenium WebDriver object
     """
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
-    return webdriver.Chrome(ChromeDriverManager().install(), options=options)
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--remote-debugging-port=9222")
+    driver = webdriver.Chrome(options=chrome_options)
+    driver.implicitly_wait(PAGE_LOAD_WAIT)
+    return driver
+
+def wait_for_page_element_load(driver: WebDriver, elem_id: str):
+    """
+    Force WebDriver to wait for element to load before continuing. Timeout of PAGE_LOAD_WAIT
+    (defaults to 60s).
+    https://www.guru99.com/implicit-explicit-waits-selenium.html -- explanation of selenium wait types
+
+    :param driver: WebDriver object we are forcing to wait
+    :param elem_id: element id string we want to wait for
+    :returns: webdriver element that has correctly loaded
+    """
+    try:
+        # loaded_elem = WebDriverWait(driver, PAGE_LOAD_WAIT).until(EC.presence_of_element_located((By.ID, elem_id)))
+        return WebDriverWait(driver, PAGE_LOAD_WAIT).until(EC.visibility_of_element_located((By.ID, elem_id)))
+    except TimeoutException:
+        logger.exception("Loading %s element on page took too much time; skipping this load.", elem_id)
+        return None
 
 def scrape_campground(driver: WebDriver, campground: Campground, start_date: datetime, num_days: int) -> bool:
     """
@@ -104,6 +135,15 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
     Use Selenium's send_keys functionality to enter start date, see below for info:
         https://selenium-python.readthedocs.io/api.html#module-selenium.webdriver.common.keys
         https://stackoverflow.com/a/27799120
+        platform-specific "select-all": https://stackoverflow.com/a/29807390
+    Note on why we loop through ARROW_LEFT and BACKSPACE:
+        - COMMAND/CTRL + 'a' doesn't work on linux
+        - date_input.clear() doesn't work on any platform
+        - BACKSPACE prior to sending date doesn't work on any platform
+        - seems to be because recreation.gov auto-fills the date field if it is ever empty,
+          which prevents us from clearing it. This way, we put in the date, backtrack to
+          delete the old date, and then manually refresh the table. Works on mac/linux
+          and headless/nonheadless.
 
     :param driver: WebDriver object previously instantiated
     :param campground: Campground object; url field will be loaded with driver
@@ -114,16 +154,31 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
     try:
         logger.debug("\tGetting campground.url (%s) with driver", campground.url)
         driver.get(campground.url)
-        sleep(PAGE_LOAD_WAIT)    # allow the page to fully load before looking at tags
         logger.debug("\tFinding input box tag")
-        date_input = driver.find_element_by_id(INPUT_TAG_NAME)
+        date_input = wait_for_page_element_load(driver, INPUT_TAG_NAME)
+        if date_input is None:  # if wait for page element load fails -> abandon this check immediately
+            return False
+        # date_input = driver.find_element_by_id(INPUT_TAG_NAME)
         logger.debug("\tSending new date with send_keys")
-        date_input.send_keys(Keys.COMMAND + "a")
         date_input.send_keys(start_date.strftime("%m/%d/%Y"))
+        for _ in range(10):     # backtrack to start of our input date
+            date_input.send_keys(Keys.ARROW_LEFT)
+        for _ in range(10):     # delete default start date
+            date_input.send_keys(Keys.BACKSPACE)
         date_input.send_keys(Keys.RETURN)
-        sleep(PAGE_LOAD_WAIT)    # allow new data to load in the table
+        # manually click refresh table button to ensure valid table data
+        # (if you don't do this every cell might be filled with 'x')
+        refresh_table = driver.find_elements_by_xpath(AVAILABILITY_TABLE_REFRESH_XPATH)[0]
+        refresh_table.click()
+
+        # wait for table refresh/loading spinning wheel to disappear, otherwise table contents are gibberish/NaN
+        # https://stackoverflow.com/a/29084080 -- wait for element to *not* be visible
+        loading_tag = driver.find_element_by_class_name(TABLE_LOADING_TAG_CLASS)
+        WebDriverWait(driver, PAGE_LOAD_WAIT).until(EC.invisibility_of_element(loading_tag))
         logger.debug("\tFinding availability table tag")
-        availability_table = driver.find_element_by_id(AVAILABILITY_TABLE_TAG_NAME)
+        availability_table = wait_for_page_element_load(driver, AVAILABILITY_TABLE_TAG_NAME)
+        if availability_table is None:  # if wait for page element load fails -> abandon this check immediately
+            return False
         table_html = availability_table.get_attribute('outerHTML')
         soup = BeautifulSoup(table_html, 'html.parser')
         df = parse_html_table(soup)
