@@ -51,14 +51,13 @@ def parse_html_table(table: BeautifulSoup) -> DataFrame:
     body_tag = table.find("tbody")
     rows = body_tag.find_all("tr")
     df = DataFrame(columns=column_names, index=range(0,len(rows)))
-    for r, row in enumerate(rows):
+    for row_idx, row in enumerate(rows):
         cell_tags = row.find_all(recgov_row_tags)
-        for c, cell in enumerate(cell_tags):
+        for cell_idx, cell in enumerate(cell_tags):
             icon = cell.find("div", {"class":CAMP_LOCATION_NAME_ICON})
             if icon is not None:
                 icon.decompose()
-            df.iat[r,c] = cell.get_text()
-    # print(df)
+            df.iat[row_idx,cell_idx] = cell.get_text()
     return df
 
 def all_dates_available(df: DataFrame, start_date: datetime, num_days: int) -> bool:
@@ -93,8 +92,6 @@ def create_selenium_driver() -> WebDriver:
     Initialize Selenium WebDriver object and return it to the caller. Do this in a separate
     function to allow driver re-use across rounds of scraping.  Note: the remote debugging port
     option seems to be required for raspberry pi operation: https://stackoverflow.com/a/56638103
-
-    TODO: haven't tested the remote debugging port on mac yet
 
     :returns: Selenium WebDriver object
     """
@@ -187,7 +184,10 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
         logger.exception(str(traceback.format_exc()))
         return False
 
-if __name__ == "__main__":
+def run():
+    """
+    Runs scrape availability module for specific values, should be used for debugging only.
+    """
     # kirk_creek = "https://www.recreation.gov/camping/campgrounds/233116/availability"
     # kirk_start_date_str = "09/17/2021"
     mcgill = "https://www.recreation.gov/camping/campgrounds/231962/availability"
@@ -199,3 +199,6 @@ if __name__ == "__main__":
         logger.info("WE HAVE SOMETHING AVAILABLE!")
     else:
         logger.info("sad")
+
+if __name__ == "__main__":
+    run()

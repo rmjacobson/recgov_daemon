@@ -86,3 +86,16 @@ In early development, this project used [WebDriverManager](https://github.com/Se
   - <https://www.internalpointers.com/post/logging-python-sub-modules-and-configuration-files>
   - <http://antonym.org/2005/03/a-real-python-logging-example.html>
 - Generic Logging Principles: <https://peter.bourgon.org/blog/2017/02/21/metrics-tracing-and-logging.html>
+
+### Dev Data
+
+For reference, and to avoid cluttering up the code, here are some values that I used in development and that might prove useful in the future.
+
+- Kirk Creek Campground URL: <https://www.recreation.gov/camping/campgrounds/233116/availability>
+  - start date string: `09/17/2021`
+- McGill Campground URL: <https://www.recreation.gov/camping/campgrounds/231962/availability>
+  - start date string: `05/31/2021`
+- Ponderosa Campground Coordinates for RIDB
+  - lat = `35.994431`
+  - lon = `-121.394325`
+  - radius = `20`
