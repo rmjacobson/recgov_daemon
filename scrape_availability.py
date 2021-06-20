@@ -5,7 +5,6 @@ Webpage interface for recov daemon. Responsible for interacting with recreation.
 webdriver and with beautifulsoup after selenium has retrieved the availability table.
 """
 
-from time import sleep
 import logging
 import traceback
 from datetime import datetime, timedelta
@@ -18,12 +17,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException
-from webdriver_manager.chrome import ChromeDriverManager
-import platform
 from campground import Campground
 
 logger = logging.getLogger(__name__)
-OS_BASE = platform.system()
 
 # tag names needed for html interaction/parsing found via manual inspection of
 # recreation.gov -- DO NOT CHANGE unless recreation.gov changes its layout!
