@@ -8,9 +8,12 @@ After cloning this repo, follow the below steps to create a virtual environment 
 
 1. Use `virtualenvwrapper` to make a new Python 3 Virtual Environment. See [the official guide](https://virtualenvwrapper.readthedocs.io/en/latest/install.html#basic-installation) or [this easier-to-follow guide](https://medium.com/@gitudaniel/installing-virtualenvwrapper-for-python3-ad3dfea7c717) for details.
 2. Run `workon <virtualenvname>` to activate venv.
-3. Run `pip3 install -r requirements.txt` to install required packages.
-4. Run `mkdir logs` (or equivalent command on Windows) to create directory for log files.
-5. Set environment variables for `ridb_api_key`, `gmail_user` and `gmail_password` -- these are required to connect to the RIDB API and to the email account you wish to use as a notification-sender. Note that you can automate this inside the `virtualenvwrapper` setup by editing the `/path/to/virtualenvs/config/dir/<virtualenvname>/bin/postactivate` file.
+3. Install Chrome browser + Selenium webdriver (tested/confirmed on macOS and linux/raspbian)
+    - on macOS: run `brew install google-chrome chromedriver`
+    - on linux/raspbian: run `sudo apt install chromium chromium-chromedriver`
+4. Run `pip3 install -r requirements.txt` to install required packages (including Selenium -- which provides Python 3 WebDriver support)
+5. Run `mkdir logs` (or equivalent command on Windows) to create directory for log files.
+6. Set environment variables for `ridb_api_key`, `gmail_user` and `gmail_password` -- these are required to connect to the RIDB API and to the email account you wish to use as a notification-sender. Note that you can automate this inside the `virtualenvwrapper` setup by editing the `/path/to/virtualenvs/config/dir/<virtualenvname>/bin/postactivate` file.
 
 ## Running the daemon
 
@@ -56,6 +59,22 @@ This project involved a lot of googling.  For easy viewing, see the sections for
   - <https://selenium-python.readthedocs.io/api.html#module-selenium.webdriver.common.keys>
   - <https://stackoverflow.com/a/27799120>
 - Difference between quitting and closing a selenium webdriver: <https://stackoverflow.com/questions/15067107/difference-between-webdriver-dispose-close-and-quit>
+- Selenium waiting for elements to load/appear
+  - <https://www.guru99.com/implicit-explicit-waits-selenium.html> -- explanation of selenium wait types
+  - <https://stackoverflow.com/a/29084080> -- wait for element to *not* be visible
+- Chrome/Chromium & webdriver
+  - <https://www.srcmake.com/home/selenium-python-chromedriver-ubuntu>
+  - <https://ivanderevianko.com/2020/01/selenium-chromedriver-for-raspberrypi>
+
+### WebDriverManager
+
+In early development, this project used [WebDriverManager](https://github.com/SergeyPirogov/webdriver_manager) to make WebDriver installation easier -- WDM allows for dynamically detecting chrome/chromium on the host and downloads the correct WebDriver for that particular version and caches the result to speed things up for the next run. Unfortunately, Unfortunately, Raspberry Pi is still 32bit (for the foreseeable future) and Chromeium/chrome does not have a valid 32bit browser/webdriver combo because they stopped updating 32bit versions of the webdriver all the way back in version 2.8. Instead, on an RPi, users have to download chromium/selenium as a separate install step, rather than relying on WebDriverManager to pull a webdriver down dynamically. For the sake of consistency, I have stopped using WebDriverManager entirely until this situation is resolved on the RPi end. This README has been updated with installation instructions for chrome/chromium + webdriver. These links will help rebuild WDM integration if we ever want to do this in the future.
+
+- <https://github.com/SergeyPirogov/webdriver_manager>
+- <https://sites.google.com/a/chromium.org/chromedriver/downloads>
+- <https://www.srcmake.com/home/selenium-python-chromedriver-ubuntu>
+- <https://ivanderevianko.com/2020/01/selenium-chromedriver-for-raspberrypi>
+- <https://blog.testproject.io/2019/07/16/installing-selenium-webdriver-using-python-chrome/>
 
 ### Logging
 
@@ -67,3 +86,16 @@ This project involved a lot of googling.  For easy viewing, see the sections for
   - <https://www.internalpointers.com/post/logging-python-sub-modules-and-configuration-files>
   - <http://antonym.org/2005/03/a-real-python-logging-example.html>
 - Generic Logging Principles: <https://peter.bourgon.org/blog/2017/02/21/metrics-tracing-and-logging.html>
+
+### Dev Data
+
+For reference, and to avoid cluttering up the code, here are some values that I used in development and that might prove useful in the future.
+
+- Kirk Creek Campground URL: <https://www.recreation.gov/camping/campgrounds/233116/availability>
+  - start date string: `09/17/2021`
+- McGill Campground URL: <https://www.recreation.gov/camping/campgrounds/231962/availability>
+  - start date string: `05/31/2021`
+- Ponderosa Campground Coordinates for RIDB
+  - lat = `35.994431`
+  - lon = `-121.394325`
+  - radius = `20`

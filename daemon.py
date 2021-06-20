@@ -3,26 +3,7 @@ daemon.py
 
 Main module for recgov daemon. Runs scrape_availabilty methods in a loop to detect new availability
 for a list of campgrounds provided by the user or found in RIDB search.
-"""
-import sys
-from signal import signal, SIGINT
-import json
-import logging
-from logging.handlers import TimedRotatingFileHandler
-import argparse
-import smtplib
-import ssl
-import os
-from datetime import datetime
-from typing import List
-from time import sleep
-from email.message import EmailMessage
-from selenium.webdriver.chrome.webdriver import WebDriver
-from scrape_availability import create_selenium_driver, scrape_campground
-from ridb_interface import get_facilities_from_ridb
-from campground import Campground, CampgroundList
 
-"""
 Note on logging:
 Python 3 logging is annoyingly confusing because of how inheiritance from the root logger works
 and how multiple modules all need to log to the same file. It's also annoying that no tutorial
@@ -50,6 +31,25 @@ Ref for file config (not used):
 Generic Logging Principles:
   - https://peter.bourgon.org/blog/2017/02/21/metrics-tracing-and-logging.html
 """
+
+import sys
+from signal import signal, SIGINT
+import json
+import logging
+from logging.handlers import TimedRotatingFileHandler
+import argparse
+import smtplib
+import ssl
+import os
+from datetime import datetime
+from typing import List
+from time import sleep
+from email.message import EmailMessage
+from selenium.webdriver.chrome.webdriver import WebDriver
+from scrape_availability import create_selenium_driver, scrape_campground
+from ridb_interface import get_facilities_from_ridb
+from campground import Campground, CampgroundList
+
 rotating_handler = handler = TimedRotatingFileHandler("logs/recgov.log", when="d", interval=1,  backupCount=5)
 rotating_handler.suffix = "%Y-%m-%d"
 logging.basicConfig(
@@ -96,7 +96,6 @@ def send_email_alert(available_campgrounds: CampgroundList):
     :returns: N/A
     """
     logger.info("Sending email alert for %d available campgrounds to %s.", len(available_campgrounds), args.email)
-
     msg = EmailMessage()
     msg["From"] = GMAIL_USER
     msg["To"] = args.email
@@ -104,7 +103,6 @@ def send_email_alert(available_campgrounds: CampgroundList):
     content = "The following campgrounds are now available!  Please excuse ugly JSON formatting.\n"
     content += json.dumps(available_campgrounds.serialize(), indent=4)
     msg.set_content(content)
-
     try:
         context = ssl.create_default_context()
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
@@ -127,7 +125,6 @@ def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=No
     :returns: CampgroundList object
     """
     campgrounds_from_facilities = CampgroundList()
-
     if ridb_facs is not None and user_facs is not None:
         # check if the user has passed in any duplicate campgrounds to those found in ridb before concatenating lists
         ridb_facs_ids = [id[1] for id in ridb_facs]
@@ -179,7 +176,6 @@ def compare_availability(selenium_driver: WebDriver, campground_list: Campground
             err_msg = f"Campground errored more than 5 times in a row, removing it from list:\n{campground.pretty()}"
             logger.error(err_msg)
             campground_list.remove(campground)
-
     if len(available) > 0:
         send_email_alert(available)
 
@@ -205,19 +201,34 @@ def parse_id_args(arg: str) -> List[str]:
         return user_facilities
     return None
 
+def run():
+    """
+    Run the daemon after SIGINT has been captured and arguments have been parsed.
+    """
+    # validate lat/lon/radius arguments prior to checking RIDB and forming CampgroundList
+    ridb_args = {args.lat, args.lon, args.radius}
+    ridb_facilities = None
+    if None not in ridb_args:
+        ridb_facilities = get_facilities_from_ridb(args.lat, args.lon, args.radius)
+    elif None in ridb_args and (args.lat is not None or args.lon is not None or args.radius is not None):
+        ridb_args_error_msg = ("daemon.py:__main__: At least one RIDB argument was passed but at least one "
+            "RIDB arg is missing or None; combination fails. Check CLI args and try again.")
+        raise ValueError(ridb_args_error_msg)
+    campgrounds = get_all_campgrounds_by_id(args.campground_ids, ridb_facilities)
+    logger.info(json.dumps(campgrounds.serialize(), indent=2))
+
+    driver = create_selenium_driver()
+
+    # check campground availability until stopped by user or start_date has passed
+    while True:
+        if args.start_date < datetime.now():
+            logger.info("Desired start date has passed, ending process...")
+            exit_gracefully(None, None, driver)
+        compare_availability(driver, campgrounds, args.start_date, args.num_days)
+        sleep(RETRY_WAIT)  # sleep for RETRY_WAIT time before checking campgrounds again
+
 if __name__ == "__main__":
-    signal(SIGINT, exit_gracefully)
-    # kirk_creek = "https://www.recreation.gov/camping/campgrounds/233116/availability"
-    # mcgill = "https://www.recreation.gov/camping/campgrounds/231962/availability"
-    # kirk_start_date_str = "09/17/2021"
-    # mcgill_start_date_str = "05/31/2021"
-    # num_days = 2
-    # do_stuff(mcgill, mcgill_start_date_str, num_days)
-
-    # LAT = 35.994431     # these are the coordinates for Ponderosa Campground
-    # LON = -121.394325
-    # RADIUS = 20
-
+    signal(SIGINT, exit_gracefully)     # add custom handler for SIGINT/CTRL-C
     ARG_DESC = """Daemon to check recreation.gov and RIDB for new campground availability and send notification email
         when new availability found."""
     parser = argparse.ArgumentParser(description=ARG_DESC)
@@ -236,30 +247,4 @@ if __name__ == "__main__":
     parser.add_argument("--campground_ids", type=parse_id_args,
         help="Comma-separated list of campground facility IDs you want to check (e.g. `233116,231962`).")
     args = parser.parse_args()
-
-    # validate lat/lon/radius arguments prior to checking RIDB and forming CampgroundList
-    ridb_args = {args.lat, args.lon, args.radius}
-    ridb_facilities = None
-    if None not in ridb_args:
-        ridb_facilities = get_facilities_from_ridb(args.lat, args.lon, args.radius)
-    elif None in ridb_args and (args.lat is not None or args.lon is not None or args.radius is not None):
-        RIDB_ARGS_ERROR_MSG = ("daemon.py:__main__: At least one RIDB argument was passed but at least one "
-            "RIDB arg is missing or None; combination fails. Check CLI args and try again.")
-        raise ValueError(RIDB_ARGS_ERROR_MSG)
-
-    campgrounds = get_all_campgrounds_by_id(args.campground_ids, ridb_facilities)
-    logger.info(json.dumps(campgrounds.serialize(), indent=2))
-
-    driver = create_selenium_driver()
-
-    # use this section for one-time check of campgrounds
-    # compare_availability(driver, campgrounds, args.start_date, args.num_days)
-    # driver.close()
-
-    # check campground availability until stopped by user or start_date has passed
-    while True:
-        if args.start_date < datetime.now():
-            logger.info("Desired start date has passed, ending process...")
-            exit_gracefully(None, None, driver)
-        compare_availability(driver, campgrounds, args.start_date, args.num_days)
-        sleep(RETRY_WAIT)  # sleep for RETRY_WAIT time before checking campgrounds again
+    run()

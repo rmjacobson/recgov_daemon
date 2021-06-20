@@ -73,10 +73,16 @@ def get_facilities_from_ridb(latitude: float, longitude: float, radius: int):
 
     return facilities
 
+def run():
+    """
+    Runs the RIDB interface module for specific values, should be used for debugging only.
+    """
+    lat = 35.994431     # these are the coordinates for Ponderosa Campground
+    lon = -121.394325
+    radius = 20
+    campgrounds = get_facilities_from_ridb(lat, lon, radius)
+    for camp in campgrounds:
+        camp.print()
+
 if __name__ == "__main__":
-    LAT = 35.994431     # these are the coordinates for Ponderosa Campground
-    LON = -121.394325
-    RADIUS = 20
-    campgrounds = get_facilities_from_ridb(LAT, LON, RADIUS)
-    for r in campgrounds:
-        r.print()
+    run()
