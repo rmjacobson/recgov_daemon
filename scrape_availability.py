@@ -16,7 +16,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from campground import Campground
 
 logger = logging.getLogger(__name__)
@@ -178,7 +178,7 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
         dates_available = all_dates_available(df, start_date, num_days)
         campground.error_count = 0      # if not errored -> reset error count to 0
         return dates_available
-    except Exception as e:
+    except (NoSuchElementException) as e:
         campground.error_count += 1     # if errored -> inc error count
         logger.exception("Campground %s (%s) parsing error!\n%s", campground.name, campground.id, e)
         logger.exception(str(traceback.format_exc()))

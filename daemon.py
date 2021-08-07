@@ -64,7 +64,8 @@ GMAIL_USER = os.environ.get("gmail_user")
 GMAIL_PASSWORD = os.environ.get("gmail_password")
 RETRY_WAIT = 300
 
-def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None):
+# pylint: disable=unused-argument
+def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None) -> None:
     """
     Handler for SIGINT that will close webdriver carefully if necessary.
     Ref: https://www.devdungeon.com/content/python-catch-sigint-ctrl-c
@@ -82,7 +83,7 @@ def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None):
         close_this_driver.quit()
     sys.exit(0)
 
-def send_email_alert(available_campgrounds: CampgroundList):
+def send_email_alert(available_campgrounds: CampgroundList) -> None:
     """
     Send email alert to email address provided by argparse, from email address (and password)
     retrieved from environment variables. Currently use Google Mail to facilitate email
@@ -110,8 +111,22 @@ def send_email_alert(available_campgrounds: CampgroundList):
             server.login(GMAIL_USER, GMAIL_PASSWORD)
             server.send_message(msg)
         logger.debug("\tEmail sent!")
-    except Exception as e:
-        logger.error("FAILURE: could not send email due to the following exception:\n%s",e)
+    except ssl.SSLError as e:
+        logger.error("FAILURE: could not send email due to SSLError exception during context setup:\n%s",e)
+    except smtplib.SMTPConnectError as e:
+        logger.error("FAILURE: could not send email due to SMTPConnectError exception:\n%s",e)
+    except smtplib.SMTPHeloError as e:
+        logger.error("""FAILURE: could not send email due to SMTPHeloError exception. The server didn't reply
+                        properly to the helo greeting: \n%s""",e)
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error("""FAILURE: could not send email due to SMTPAuthenticationError exception during login.
+                        The server didn't accept the username/password combination: \n%s""", e)
+    except smtplib.SMTPNotSupportedError as e:
+        logger.error("""FAILURE: could not send email due to SMTPNotSupportedError exception during login. The
+                        AUTH command is not supported by the server: \n%s""", e)
+    except smtplib.SMTPException as e:
+        logger.error("""FAILURE: could not send email due to SMTPException exception. Not sure what happened to cause
+                        this general error: \n%s""", e)
 
 def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=None) -> CampgroundList:
     """
