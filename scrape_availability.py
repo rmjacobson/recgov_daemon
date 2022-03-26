@@ -17,13 +17,15 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException
+from time import sleep
 from campground import Campground
 
 logger = logging.getLogger(__name__)
 
 # tag names needed for html interaction/parsing found via manual inspection of
 # recreation.gov -- DO NOT CHANGE unless recreation.gov changes its layout!
-INPUT_TAG_NAME = "single-date-picker-1"
+START_DATE_INPUT_TAG_NAME = "campground-start-date-calendar"
+END_DATE_INPUT_TAG_NAME = "campground-end-date-calendar"
 AVAILABILITY_TABLE_TAG_NAME = "availability-table"
 TABLE_LOADING_TAG_CLASS = "rec-table-overlay"
 CAMP_LOCATION_NAME_ICON = "camp-location-name--icon"
@@ -148,10 +150,10 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
         logger.debug("\tGetting campground.url (%s) with driver", campground.url)
         driver.get(campground.url)
         logger.debug("\tFinding input box tag")
-        date_input = wait_for_page_element_load(driver, INPUT_TAG_NAME)
+        date_input = wait_for_page_element_load(driver, START_DATE_INPUT_TAG_NAME)
         if date_input is None:  # if wait for page element load fails -> abandon this check immediately
             return False
-        # date_input = driver.find_element_by_id(INPUT_TAG_NAME)
+        # date_input = driver.find_element_by_id(START_DATE_INPUT_TAG_NAME)
         logger.debug("\tSending new date with send_keys")
         date_input.send_keys(start_date.strftime("%m/%d/%Y"))
         for _ in range(10):     # backtrack to start of our input date
@@ -166,8 +168,9 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
 
         # wait for table refresh/loading spinning wheel to disappear, otherwise table contents are gibberish/NaN
         # https://stackoverflow.com/a/29084080 -- wait for element to *not* be visible
-        loading_tag = driver.find_element_by_class_name(TABLE_LOADING_TAG_CLASS)
-        WebDriverWait(driver, PAGE_LOAD_WAIT).until(EC.invisibility_of_element(loading_tag))
+        # loading_tag = driver.find_element_by_class_name(TABLE_LOADING_TAG_CLASS)
+        # WebDriverWait(driver, PAGE_LOAD_WAIT).until(EC.invisibility_of_element(loading_tag))
+        sleep(10) # don't know if the above works yet, try this for now
         logger.debug("\tFinding availability table tag")
         availability_table = wait_for_page_element_load(driver, AVAILABILITY_TABLE_TAG_NAME)
         if availability_table is None:  # if wait for page element load fails -> abandon this check immediately
@@ -191,7 +194,7 @@ def run():
     # kirk_creek = "https://www.recreation.gov/camping/campgrounds/233116/availability"
     # kirk_start_date_str = "09/17/2021"
     mcgill = "https://www.recreation.gov/camping/campgrounds/231962/availability"
-    mcgill_start_date_str = "05/31/2021"
+    mcgill_start_date_str = "05/31/2022"
     num_days = 2
 
     driver = create_selenium_driver()
@@ -199,6 +202,7 @@ def run():
         logger.info("WE HAVE SOMETHING AVAILABLE!")
     else:
         logger.info("sad")
+    driver.quit()
 
 if __name__ == "__main__":
     run()
