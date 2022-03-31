@@ -32,11 +32,11 @@ Generic Logging Principles:
   - https://peter.bourgon.org/blog/2017/02/21/metrics-tracing-and-logging.html
 """
 
-import sys
+# import sys
 from signal import signal, SIGINT
 import json
 import logging
-from logging.handlers import TimedRotatingFileHandler
+# from logging.handlers import TimedRotatingFileHandler
 import argparse
 import smtplib
 import ssl
@@ -49,14 +49,15 @@ from selenium.webdriver.chrome.webdriver import WebDriver
 from scrape_availability import create_selenium_driver, scrape_campground
 from ridb_interface import get_facilities_from_ridb
 from campground import Campground, CampgroundList
+from utils import exit_gracefully, setup_logging
 
-rotating_handler = handler = TimedRotatingFileHandler("logs/recgov.log", when="d", interval=1,  backupCount=5)
-rotating_handler.suffix = "%Y-%m-%d"
-logging.basicConfig(
-    handlers=[rotating_handler],
-    level=logging.INFO,
-    format="[%(asctime)s] %(filename)s:%(lineno)d [%(name)s]%(levelname)s - %(message)s",
-)
+# rotating_handler = handler = TimedRotatingFileHandler("logs/recgov.log", when="d", interval=1,  backupCount=5)
+# rotating_handler.suffix = "%Y-%m-%d"
+# logging.basicConfig(
+#     handlers=[rotating_handler],
+#     level=logging.INFO,
+#     format="[%(asctime)s] %(filename)s:%(lineno)d [%(name)s]%(levelname)s - %(message)s",
+# )
 logger = logging.getLogger(__name__)
 
 # set in ~/.virtualenvs/recgov_daemon/bin/postactivate
@@ -64,23 +65,23 @@ GMAIL_USER = os.environ.get("gmail_user")
 GMAIL_PASSWORD = os.environ.get("gmail_password")
 RETRY_WAIT = 300
 
-def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None):
-    """
-    Handler for SIGINT that will close webdriver carefully if necessary.
-    Ref: https://www.devdungeon.com/content/python-catch-sigint-ctrl-c
-         https://docs.python.org/3/library/signal.html
+# def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None):
+#     """
+#     Handler for SIGINT that will close webdriver carefully if necessary.
+#     Ref: https://www.devdungeon.com/content/python-catch-sigint-ctrl-c
+#          https://docs.python.org/3/library/signal.html
 
-    :param signal_received: signal object received by handler
-    :param frame: actually have no idea what this is and we never use it...
-    :param driver: Selenium WebDriver to close before exiting
-    :returns: N/A
-    """
-    logger.info("Received CTRL-C/SIGNINT or daemon completed; exiting gracefully/closing WebDriver if initialized.")
-    if close_this_driver is not None:
-        # use quit instead of close to avoid tons of leftover chrome processes
-        # https://stackoverflow.com/questions/15067107/difference-between-webdriver-dispose-close-and-quit
-        close_this_driver.quit()
-    sys.exit(0)
+#     :param signal_received: signal object received by handler
+#     :param frame: actually have no idea what this is and we never use it...
+#     :param driver: Selenium WebDriver to close before exiting
+#     :returns: N/A
+#     """
+#     logger.info("Received CTRL-C/SIGNINT or daemon completed; exiting gracefully/closing WebDriver if initialized.")
+#     if close_this_driver is not None:
+#         # use quit instead of close to avoid tons of leftover chrome processes
+#         # https://stackoverflow.com/questions/15067107/difference-between-webdriver-dispose-close-and-quit
+#         close_this_driver.quit()
+#     sys.exit(0)
 
 def send_email_alert(available_campgrounds: CampgroundList):
     """
@@ -247,4 +248,5 @@ if __name__ == "__main__":
     parser.add_argument("--campground_ids", type=parse_id_args,
         help="Comma-separated list of campground facility IDs you want to check (e.g. `233116,231962`).")
     args = parser.parse_args()
+    setup_logging()
     run()

@@ -7,7 +7,10 @@ webdriver and with beautifulsoup after selenium has retrieved the availability t
 
 import logging
 import traceback
+from signal import signal, SIGINT
 from datetime import datetime, timedelta
+from time import sleep
+from typing import Tuple
 from pandas.core.frame import DataFrame
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -17,19 +20,21 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException
-from time import sleep
 from campground import Campground
+from utils import exit_gracefully, setup_logging
 
 logger = logging.getLogger(__name__)
 
 # tag names needed for html interaction/parsing found via manual inspection of
 # recreation.gov -- DO NOT CHANGE unless recreation.gov changes its layout!
 START_DATE_INPUT_TAG_NAME = "campground-start-date-calendar"
+START_DATE_ERROR_TAG_NAME = "campground-start-date-calendar-error"
 END_DATE_INPUT_TAG_NAME = "campground-end-date-calendar"
 AVAILABILITY_TABLE_TAG_NAME = "availability-table"
 TABLE_LOADING_TAG_CLASS = "rec-table-overlay"
 CAMP_LOCATION_NAME_ICON = "camp-location-name--icon"
 AVAILABILITY_TABLE_REFRESH_XPATH = """//*[@id="page-body"]/div/div[1]/div[1]/div[3]/div[1]/div[1]/div/div/button[1]"""
+DATE_RANGE_ERROR_XPATH = """/html/body/div[1]/div/div[3]/div/div[2]/div/div[3]/div/div[2]/div/div/div[2]/div[1]/div[1]/div/div[2]"""
 PAGE_LOAD_WAIT = 60
 
 def parse_html_table(table: BeautifulSoup) -> DataFrame:
@@ -98,7 +103,7 @@ def create_selenium_driver() -> WebDriver:
     :returns: Selenium WebDriver object
     """
     chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_argument("--headless")
+    # chrome_options.add_argument("--headless")
     chrome_options.add_argument("--remote-debugging-port=9222")
     driver = webdriver.Chrome(options=chrome_options)
     driver.implicitly_wait(PAGE_LOAD_WAIT)
@@ -123,7 +128,8 @@ def wait_for_page_element_load(driver: WebDriver, elem_id: str):
 
 def enter_date_input(date: datetime, date_input):
     """
-    As of 2022, recreation.gov requires inputting a start and end date separately to refresh the table
+    As of 2022, recreation.gov requires inputting a start and end date separately to refresh the
+    table, so pull out this function so that we can call it for both boxes and avoid code reuse.
     """
     date_input.send_keys(date.strftime("%m/%d/%Y"))
     for _ in range(10):     # backtrack to start of our input date
@@ -131,6 +137,24 @@ def enter_date_input(date: datetime, date_input):
     for _ in range(10):     # delete default start date
         date_input.send_keys(Keys.BACKSPACE)
     date_input.send_keys(Keys.RETURN)
+
+def is_bad_date(driver: WebDriver, element_id) -> Tuple[bool, str]:
+    """
+    Entering the date improperly causes dynamic text to appear right below the input box
+    indicating whether the date is invalid (formatting issue) or unavailable. Read this
+    text and return the appropriate message to the caller.
+    """
+    date_error_msg = driver.find_element(by=By.ID, value=element_id)
+    invalid_str = "not valid"
+    unavailable_str = "not available"
+    logger.info(date_error_msg.text)
+    if date_error_msg is not None:
+        if unavailable_str in date_error_msg.text:
+            return (True, unavailable_str)
+        if invalid_str in date_error_msg.text:
+            return (True, invalid_str)
+        return (True, "new error")
+    return (False, "all good")
 
 def scrape_campground(driver: WebDriver, campground: Campground, start_date: datetime, num_days: int) -> bool:
     """
@@ -166,30 +190,38 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
             return False
         # date_input = driver.find_element_by_id(START_DATE_INPUT_TAG_NAME)
         logger.debug("\tInputting start date with send_keys")
-        enter_date_input(start_date)
-        logger.debug("\tInputting end date with send_keys")
-        end_date = start_date + timedelta(days=num_days)
-        enter_date_input(end_date)
+        enter_date_input(start_date, date_input)
+        date_check = is_bad_date(driver, START_DATE_ERROR_TAG_NAME)
+        if date_check[0]:
+            logger.error("\tStart date is is %s; returning False", date_check[1])
+            return False
+
+        #TODO: pick up here next time...
+        
+        # logger.debug("\tInputting end date with send_keys")
+        # end_date = start_date + timedelta(days=num_days)
+        # enter_date_input(end_date, date_input)
         # manually click refresh table button to ensure valid table data
         # (if you don't do this every cell might be filled with 'x')
-        refresh_table = driver.find_elements_by_xpath(AVAILABILITY_TABLE_REFRESH_XPATH)[0]
-        refresh_table.click()
+        # refresh_table = driver.find_elements_by_xpath(AVAILABILITY_TABLE_REFRESH_XPATH)[0]
+        # refresh_table.click()
 
         # wait for table refresh/loading spinning wheel to disappear, otherwise table contents are gibberish/NaN
         # https://stackoverflow.com/a/29084080 -- wait for element to *not* be visible
         # loading_tag = driver.find_element_by_class_name(TABLE_LOADING_TAG_CLASS)
         # WebDriverWait(driver, PAGE_LOAD_WAIT).until(EC.invisibility_of_element(loading_tag))
-        sleep(10) # don't know if the above works yet, try this for now
-        logger.debug("\tFinding availability table tag")
-        availability_table = wait_for_page_element_load(driver, AVAILABILITY_TABLE_TAG_NAME)
-        if availability_table is None:  # if wait for page element load fails -> abandon this check immediately
-            return False
-        table_html = availability_table.get_attribute('outerHTML')
-        soup = BeautifulSoup(table_html, 'html.parser')
-        df = parse_html_table(soup)
-        dates_available = all_dates_available(df, start_date, num_days)
-        campground.error_count = 0      # if not errored -> reset error count to 0
-        return dates_available
+        # sleep(10) # don't know if the above works yet, try this for now
+        # logger.debug("\tFinding availability table tag")
+        # availability_table = wait_for_page_element_load(driver, AVAILABILITY_TABLE_TAG_NAME)
+        # if availability_table is None:  # if wait for page element load fails -> abandon this check immediately
+        #     return False
+        # table_html = availability_table.get_attribute('outerHTML')
+        # soup = BeautifulSoup(table_html, 'html.parser')
+        # df = parse_html_table(soup)
+        # dates_available = all_dates_available(df, start_date, num_days)
+        # campground.error_count = 0      # if not errored -> reset error count to 0
+        # return dates_available
+        return False
     except Exception as e:
         campground.error_count += 1     # if errored -> inc error count
         logger.exception("Campground %s (%s) parsing error!\n%s", campground.name, campground.id, e)
@@ -200,18 +232,22 @@ def run():
     """
     Runs scrape availability module for specific values, should be used for debugging only.
     """
+    signal(SIGINT, exit_gracefully)     # add custom handler for SIGINT/CTRL-C
     # kirk_creek = "https://www.recreation.gov/camping/campgrounds/233116/availability"
     # kirk_start_date_str = "09/17/2021"
-    mcgill = "https://www.recreation.gov/camping/campgrounds/231962/availability"
-    mcgill_start_date_str = "05/31/2022"
+    # mcgill = "https://www.recreation.gov/camping/campgrounds/231962/availability"
+    mcgill_start_date = datetime.strptime("06/07/2022", "%m/%d/%Y")
     num_days = 2
+    mcgill_campground = Campground(name="McGill", facility_id="231962")
 
     driver = create_selenium_driver()
-    if scrape_campground(driver, mcgill, mcgill_start_date_str, num_days):
+    if scrape_campground(driver, mcgill_campground, mcgill_start_date, num_days):
         logger.info("WE HAVE SOMETHING AVAILABLE!")
     else:
         logger.info("sad")
+    sleep(10000000)
     driver.quit()
 
 if __name__ == "__main__":
+    setup_logging()
     run()
