@@ -121,6 +121,17 @@ def wait_for_page_element_load(driver: WebDriver, elem_id: str):
         logger.exception("Loading %s element on page took too much time; skipping this load.", elem_id)
         return None
 
+def enter_date_input(date: datetime, date_input):
+    """
+    As of 2022, recreation.gov requires inputting a start and end date separately to refresh the table
+    """
+    date_input.send_keys(date.strftime("%m/%d/%Y"))
+    for _ in range(10):     # backtrack to start of our input date
+        date_input.send_keys(Keys.ARROW_LEFT)
+    for _ in range(10):     # delete default start date
+        date_input.send_keys(Keys.BACKSPACE)
+    date_input.send_keys(Keys.RETURN)
+
 def scrape_campground(driver: WebDriver, campground: Campground, start_date: datetime, num_days: int) -> bool:
     """
     Use Selenium WebDriver to load page, input desired start date, identify availability table
@@ -154,13 +165,11 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
         if date_input is None:  # if wait for page element load fails -> abandon this check immediately
             return False
         # date_input = driver.find_element_by_id(START_DATE_INPUT_TAG_NAME)
-        logger.debug("\tSending new date with send_keys")
-        date_input.send_keys(start_date.strftime("%m/%d/%Y"))
-        for _ in range(10):     # backtrack to start of our input date
-            date_input.send_keys(Keys.ARROW_LEFT)
-        for _ in range(10):     # delete default start date
-            date_input.send_keys(Keys.BACKSPACE)
-        date_input.send_keys(Keys.RETURN)
+        logger.debug("\tInputting start date with send_keys")
+        enter_date_input(start_date)
+        logger.debug("\tInputting end date with send_keys")
+        end_date = start_date + timedelta(days=num_days)
+        enter_date_input(end_date)
         # manually click refresh table button to ensure valid table data
         # (if you don't do this every cell might be filled with 'x')
         refresh_table = driver.find_elements_by_xpath(AVAILABILITY_TABLE_REFRESH_XPATH)[0]
