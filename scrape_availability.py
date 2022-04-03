@@ -93,16 +93,18 @@ def all_dates_available(df: DataFrame, start_date: datetime, num_days: int) -> b
 
     return at_least_one_available
 
-def create_selenium_driver() -> WebDriver:
+def create_selenium_driver(headless: bool=True) -> WebDriver:
     """
     Initialize Selenium WebDriver object and return it to the caller. Do this in a separate
     function to allow driver re-use across rounds of scraping.  Note: the remote debugging port
     option seems to be required for raspberry pi operation: https://stackoverflow.com/a/56638103
 
+    :param headless: create GUI for WebDriver? Testing usage passes in False, defaults to True
     :returns: Selenium WebDriver object
     """
     chrome_options = webdriver.ChromeOptions()
-    # chrome_options.add_argument("--headless")
+    if headless:
+        chrome_options.add_argument("--headless")
     chrome_options.add_argument("--remote-debugging-port=9222")
     driver = webdriver.Chrome(options=chrome_options)
     driver.implicitly_wait(PAGE_LOAD_WAIT)
@@ -237,7 +239,7 @@ def run():
     num_days = 2
     mcgill_campground = Campground(name="McGill", facility_id="231962")
 
-    driver = create_selenium_driver()
+    driver = create_selenium_driver(headless=False)
     if scrape_campground(driver, mcgill_campground, mcgill_start_date, num_days):
         logger.info("WE HAVE SOMETHING AVAILABLE!")
     else:
