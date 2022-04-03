@@ -51,37 +51,12 @@ from ridb_interface import get_facilities_from_ridb
 from campground import Campground, CampgroundList
 from utils import exit_gracefully, setup_logging
 
-# rotating_handler = handler = TimedRotatingFileHandler("logs/recgov.log", when="d", interval=1,  backupCount=5)
-# rotating_handler.suffix = "%Y-%m-%d"
-# logging.basicConfig(
-#     handlers=[rotating_handler],
-#     level=logging.INFO,
-#     format="[%(asctime)s] %(filename)s:%(lineno)d [%(name)s]%(levelname)s - %(message)s",
-# )
 logger = logging.getLogger(__name__)
 
 # set in ~/.virtualenvs/recgov_daemon/bin/postactivate
 GMAIL_USER = os.environ.get("gmail_user")
 GMAIL_PASSWORD = os.environ.get("gmail_password")
 RETRY_WAIT = 300
-
-# def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None):
-#     """
-#     Handler for SIGINT that will close webdriver carefully if necessary.
-#     Ref: https://www.devdungeon.com/content/python-catch-sigint-ctrl-c
-#          https://docs.python.org/3/library/signal.html
-
-#     :param signal_received: signal object received by handler
-#     :param frame: actually have no idea what this is and we never use it...
-#     :param driver: Selenium WebDriver to close before exiting
-#     :returns: N/A
-#     """
-#     logger.info("Received CTRL-C/SIGNINT or daemon completed; exiting gracefully/closing WebDriver if initialized.")
-#     if close_this_driver is not None:
-#         # use quit instead of close to avoid tons of leftover chrome processes
-#         # https://stackoverflow.com/questions/15067107/difference-between-webdriver-dispose-close-and-quit
-#         close_this_driver.quit()
-#     sys.exit(0)
 
 def send_email_alert(available_campgrounds: CampgroundList):
     """

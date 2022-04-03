@@ -11,20 +11,6 @@ from selenium.webdriver.chrome.webdriver import WebDriver
 
 logger = logging.getLogger(__name__)
 
-def setup_logging() -> None:
-    """
-    Set logging for whole project. This function is called from wherever the program
-    is invoked. Could be from different places given development of different components
-    separately.
-    """
-    rotating_handler = TimedRotatingFileHandler("logs/recgov.log", when="d", interval=1,  backupCount=5)
-    rotating_handler.suffix = "%Y-%m-%d"
-    logging.basicConfig(
-        handlers=[rotating_handler],
-        level=logging.INFO,
-        format="[%(asctime)s] %(filename)s:%(lineno)d [%(name)s]%(levelname)s - %(message)s",
-    )
-
 def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None):
     """
     Handler for SIGINT that will close webdriver carefully if necessary.
@@ -43,3 +29,35 @@ def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None):
         close_this_driver.quit()
         logger.info("WebDriver Quit Successfully")
     sys.exit(0)
+
+def set_low_network_quality(driver: WebDriver) -> None:
+    """
+    Set WebDriver to simulate low network quality -- 5ms additional latency, only 500kb
+    throughput. Mostly used when testing the load actions of the availability table; sometimes
+    there is a web element that shows up and spins for a while while the wait happens and it
+    can be difficult to find the name for that without the appropriate delays set.
+
+    Should never be used in production code, but left here for future testing needs.
+    """
+    latency_delay_ms = 5
+    download_throughput_kb = 500
+    upload_throughput_kb = 500
+    driver.set_network_conditions(
+        offline=False,
+        latency=latency_delay_ms,
+        download_throughput=download_throughput_kb,
+        upload_throughput=upload_throughput_kb)
+
+def setup_logging() -> None:
+    """
+    Set logging for whole project. This function is called from wherever the program
+    is invoked. Could be from different places given development of different components
+    separately.
+    """
+    rotating_handler = TimedRotatingFileHandler("logs/recgov.log", when="d", interval=1,  backupCount=5)
+    rotating_handler.suffix = "%Y-%m-%d"
+    logging.basicConfig(
+        handlers=[rotating_handler],
+        level=logging.INFO,
+        format="[%(asctime)s] %(filename)s:%(lineno)d [%(name)s]%(levelname)s - %(message)s",
+    )
