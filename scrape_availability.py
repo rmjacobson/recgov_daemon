@@ -21,7 +21,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.utils import ChromeType
@@ -39,6 +39,7 @@ END_DATE_ERROR_TAG_NAME = "campground-end-date-calendar-error"
 AVAILABILITY_TABLE_TAG_NAME = "availability-table"
 TABLE_LOADING_TAG_CLASS = "rec-table-overlay-loading"
 CAMP_LOCATION_NAME_ICON = "camp-location-name--icon"
+TUTORIAL_CLOSE_BUTTON_XPATH = "/html/body/div[11]/div/div/div/div/div/div/div/button"
 PAGE_LOAD_WAIT = 60
 
 def parse_html_table(table: BeautifulSoup) -> DataFrame:
@@ -107,44 +108,16 @@ def create_selenium_driver(headless: bool=True) -> WebDriver:
     :param headless: create GUI for WebDriver? Testing usage passes in False, defaults to True
     :returns: Selenium WebDriver object
     """
-    # chrome_options = webdriver.ChromeOptions()
-    # chromium_options = Options()
-    # if headless:
-    #     chromium_options.add_argument("--headless")
-    # chromium_options.add_argument("--remote-debugging-port=9222")
-    # chromium_options.binary_location = "/usr/bin/chromium-browser"
-    # driver_path = "/usr/bin/chromedriver"
-    # driver = webdriver.Chrome(options=chromium_options, service=Service(driver_path))
-
-    display = Display(visible=0, size=(800, 600))
-    display.start()
-
     options = Options()
-    options.add_argument("start-maximized")
     options.add_argument("enable-automation")
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-infobars")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-browser-side-navigation")
-    options.add_argument("--disable-gpu")
+    if headless:
+        options.add_argument("--headless")
     options.add_argument("--remote-debugging-port=9222")
     # browser is Chromium instead of Chrome
     options.binary_location = "/usr/bin/chromium-browser"
     # we use custom chromedriver for raspberry
-    # driver_path = "/usr/bin/chromedriver"
     driver_path = "/usr/lib/chromium-browser/chromedriver"
     driver = webdriver.Chrome(options=options, service=Service(driver_path))
-
-    # chrome_options.add_argument("--disable-features=VizDisplayCompositor")
-    # driver = webdriver.Chrome(options=chrome_options)
-    # service = Service("/usr/bin/chromedriver")
-    # service.start()
-    # driver = webdriver.Remote(service.service_url)
-    # driver = webdriver.Chrome(options=chrome_options, executable_path="/usr/bin/chromedriver")
-    # driver = webdriver.Chrome(options=chrome_options, service=Service(ChromeDriverManager().install()))
-    # driver = webdriver.Chrome(service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()), options=chrome_options)
-    # driver = webdriver.
     driver.implicitly_wait(PAGE_LOAD_WAIT)
     return driver
 
@@ -227,6 +200,14 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
         logger.debug("\tGetting campground.url (%s) with driver", campground.url)
         driver.get(campground.url)
         logger.debug("\tFinding input box tag")
+
+        try:        # wait until start date input has loaded before checking for tutorial
+            driver.find_element(by=By.XPATH, value=TUTORIAL_CLOSE_BUTTON_XPATH)
+            logger.info("blah")
+        except NoSuchElementException:
+            logger.info("No tutorial this time")
+            pass    # we don't actually care if tutorial didn't appear, just move on
+
         start_date_input = wait_for_page_element_load(driver, START_DATE_INPUT_TAG_NAME)
         if start_date_input is None:  # if wait for page element load fails -> abandon this check immediately
             return False
