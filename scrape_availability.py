@@ -202,8 +202,9 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
         logger.debug("\tFinding input box tag")
 
         try:        # wait until start date input has loaded before checking for tutorial
-            driver.find_element(by=By.XPATH, value=TUTORIAL_CLOSE_BUTTON_XPATH)
+            tutorial_close_button = driver.find_element(by=By.XPATH, value=TUTORIAL_CLOSE_BUTTON_XPATH)
             logger.info("blah")
+            tutorial_close_button.click()
         except NoSuchElementException:
             logger.info("No tutorial this time")
             pass    # we don't actually care if tutorial didn't appear, just move on
@@ -258,7 +259,7 @@ def run():
     num_days = 2
     mcgill_campground = Campground(name="McGill", facility_id="231962")
 
-    driver = create_selenium_driver(headless=False)
+    driver = create_selenium_driver(headless=True)
     if scrape_campground(driver, mcgill_campground, mcgill_start_date, num_days):
         logger.info("WE HAVE SOMETHING AVAILABLE!")
     else:
