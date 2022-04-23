@@ -42,7 +42,8 @@ import os
 from datetime import datetime
 from typing import List
 from time import sleep
-from email.message import EmailMessage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from selenium.webdriver.chrome.webdriver import WebDriver
 from scrape_availability import create_selenium_driver, scrape_campground
 from ridb_interface import get_facilities_from_ridb
@@ -53,39 +54,45 @@ logger = logging.getLogger(__name__)
 
 # set in ~/.virtualenvs/recgov_daemon/bin/postactivate
 GMAIL_USER = os.environ.get("gmail_user")
-GMAIL_PASSWORD = os.environ.get("gmail_password")
+GMAIL_APP_PASSWORD = os.environ.get("gmail_app_password")
 RETRY_WAIT = 300
 
 def send_email_alert(available_campgrounds: CampgroundList):
     """
     Send email alert to email address provided by argparse, from email address (and password)
     retrieved from environment variables. Currently use Google Mail to facilitate email
-    alerts. See references:
-        https://zetcode.com/python/smtplib/
-        https://realpython.com/python-send-email/#option-1-using-smtp_ssl
-        https://docs.python.org/3/library/smtplib.html
+    alerts. Currently using Google App Password to avoid "less secure app access" problems.
+    See references:
+        https://levelup.gitconnected.com/an-alternative-way-to-send-emails-in-python-5630a7efbe84
 
     :param available_campgrounds: CampgroundList object containing available campgrounds
         found in caller
     :returns: N/A
     """
     logger.info("Sending email alert for %d available campgrounds to %s.", len(available_campgrounds), args.email)
-    msg = EmailMessage()
+    smtp_server = "smtp.gmail.com"
+    port = 587  # For starttls
+    msg = MIMEMultipart()
     msg["From"] = GMAIL_USER
     msg["To"] = args.email
     msg["Subject"] = f"Alert for {len(available_campgrounds)} Available Campground on Recreation.gov"
     content = "The following campgrounds are now available!  Please excuse ugly JSON formatting.\n"
     content += json.dumps(available_campgrounds.serialize(), indent=4)
-    msg.set_content(content)
+    body_text = MIMEText(content, 'plain')  # don't bother with HTML formatting for now
+    msg.attach(body_text)
+    context = ssl.create_default_context()
     try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
-            server.ehlo()
-            server.login(GMAIL_USER, GMAIL_PASSWORD)
-            server.send_message(msg)
+        server = smtplib.SMTP(smtp_server, port)
+        server.ehlo()                       # check connection
+        server.starttls(context=context)    # Secure the connection
+        server.ehlo()                       # check connection
+        server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+        server.sendmail(GMAIL_USER, args.email, msg.as_string())
         logger.debug("\tEmail sent!")
     except Exception as e:
         logger.error("FAILURE: could not send email due to the following exception:\n%s",e)
+    finally:
+        server.quit()
 
 def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=None) -> CampgroundList:
     """
