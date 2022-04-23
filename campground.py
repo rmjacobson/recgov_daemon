@@ -12,11 +12,11 @@ class Campground():
     Taken from https://github.com/CCInCharge/campsite-checker, has been useful for debug.
     """
     def __init__(self, name="N/A", facility_id=None):
-        self.name = name                                            # name of campground
-        self.id = facility_id                                       # facility ID of campground
-        self.url = f"{RECGOV_BASE_URL}/{facility_id}/availability"  # recreation.gov URL for campground
-        self.available = False                                      # initialize to unavailable
-        self.error_count = 0                                        # initialize parsing error count to 0
+        self.name = name                                # name of campground
+        self.id = facility_id                           # facility ID of campground
+        self.url = f"{RECGOV_BASE_URL}/{facility_id}"   # recreation.gov URL for campground
+        self.available = False                          # initialize to unavailable
+        self.error_count = 0                            # initialize parsing error count to 0
         # self.campsites = {}     # TODO: develop way of storing available specific campsites
 
     def pretty(self):
