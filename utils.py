@@ -53,6 +53,33 @@ def setup_logging() -> None:
     Set logging for whole project. This function is called from wherever the program
     is invoked. Could be from different places given development of different components
     separately.
+
+    Note on logging:
+    Python 3 logging is annoyingly confusing because of how inheiritance from the root logger works
+    and how multiple modules all need to log to the same file. It's also annoying that no tutorial
+    or official doc agrees on what is "best practice" between manually naming the loggers across
+    modules vs. using __name__, or whether or not it's best practice to create config/ini files, etc.
+
+    For this project, I have chosen to programatically configure logging as below, using basicConfig
+    to also reconfigure the root logger (which affects Selenium mostly), and have other modules get
+    configs from here by just using getLogger in those files because it is the simplest thing I've
+    tried that actually works as needed. The log:
+    - is set to INFO by default
+    - rotates to a new file every day
+    - will save logs for 7 days max
+    - saves to a local logs/ directory inside this repo (excluded from git) because doing so
+        elsewhere does not guarantee user will have permissions to create files
+
+    Refs used to create this:
+    - https://gist.github.com/gene1wood/73b715434c587d2240c21fc83fad7962
+    - https://timber.io/blog/the-pythonic-guide-to-logging/
+    Ref for format:
+    - https://www.pylenin.com/blogs/python-logging-guide/#configuring-a-main-logger
+    Ref for file config (not used):
+    - https://www.internalpointers.com/post/logging-python-sub-modules-and-configuration-files
+    - http://antonym.org/2005/03/a-real-python-logging-example.html
+    Generic Logging Principles:
+    - https://peter.bourgon.org/blog/2017/02/21/metrics-tracing-and-logging.html
     """
     rotating_handler = TimedRotatingFileHandler("logs/recgov.log", when="d", interval=1,  backupCount=5)
     rotating_handler.suffix = "%Y-%m-%d"
