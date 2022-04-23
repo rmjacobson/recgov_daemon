@@ -109,14 +109,12 @@ def create_selenium_driver(headless: bool=True) -> WebDriver:
     :returns: Selenium WebDriver object
     """
     options = Options()
-    options.add_argument("enable-automation")
+    options.add_argument("enable-automation")               # necessary for driving Chromium actions
     if headless:
         options.add_argument("--headless")
-    options.add_argument("--remote-debugging-port=9222")
-    # browser is Chromium instead of Chrome
-    options.binary_location = "/usr/bin/chromium-browser"
-    # we use custom chromedriver for raspberry
-    driver_path = "/usr/lib/chromium-browser/chromedriver"
+    options.add_argument("--remote-debugging-port=9222")    # necessary for driving Chromium actions
+    options.binary_location = "/usr/bin/chromium-browser"   # browser is Chromium instead of Chrome
+    driver_path = "/usr/lib/chromium-browser/chromedriver"  # we use custom chromedriver for raspberry
     driver = webdriver.Chrome(options=options, service=Service(driver_path))
     driver.implicitly_wait(PAGE_LOAD_WAIT)
     return driver
@@ -199,16 +197,16 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
     try:
         logger.debug("\tGetting campground.url (%s) with driver", campground.url)
         driver.get(campground.url)
-        logger.debug("\tFinding input box tag")
 
-        try:        # wait until start date input has loaded before checking for tutorial
+        try:        # check for tutorial window and close it if it appears, otherwise table doesn't load correctly
             tutorial_close_button = driver.find_element(by=By.XPATH, value=TUTORIAL_CLOSE_BUTTON_XPATH)
-            logger.info("blah")
+            logger.debug("\tClosing tutorial window")
             tutorial_close_button.click()
         except NoSuchElementException:
-            logger.info("No tutorial this time")
+            logger.debug("\tNo tutorial this time")
             pass    # we don't actually care if tutorial didn't appear, just move on
 
+        logger.debug("\tFinding input box tag")
         start_date_input = wait_for_page_element_load(driver, START_DATE_INPUT_TAG_NAME)
         if start_date_input is None:  # if wait for page element load fails -> abandon this check immediately
             return False

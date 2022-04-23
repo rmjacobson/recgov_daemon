@@ -32,11 +32,9 @@ Generic Logging Principles:
   - https://peter.bourgon.org/blog/2017/02/21/metrics-tracing-and-logging.html
 """
 
-# import sys
 from signal import signal, SIGINT
 import json
 import logging
-# from logging.handlers import TimedRotatingFileHandler
 import argparse
 import smtplib
 import ssl
@@ -147,7 +145,8 @@ def compare_availability(selenium_driver: WebDriver, campground_list: Campground
             logger.info("%s (%s) is not available, trying again in %s seconds",
                 campground.name, campground.id, RETRY_WAIT)
 
-        # if campground parsing has errored more than 5 times in a row, remove it from the CampgroundList
+        # if campground parsing has errored more than 5 times in a row
+        # remove it from the CampgroundList so we can stop checking it and failing
         if campground.error_count > 5:
             err_msg = f"Campground errored more than 5 times in a row, removing it from list:\n{campground.pretty()}"
             logger.error(err_msg)
