@@ -3,33 +3,6 @@ daemon.py
 
 Main module for recgov daemon. Runs scrape_availabilty methods in a loop to detect new availability
 for a list of campgrounds provided by the user or found in RIDB search.
-
-Note on logging:
-Python 3 logging is annoyingly confusing because of how inheiritance from the root logger works
-and how multiple modules all need to log to the same file. It's also annoying that no tutorial
-or official doc agrees on what is "best practice" between manually naming the loggers across
-modules vs. using __name__, or whether or not it's best practice to create config/ini files, etc.
-
-For this project, I have chosen to programatically configure logging as below, using basicConfig
-to also reconfigure the root logger (which affects Selenium mostly), and have other modules get
-configs from here by just using getLogger in those files because it is the simplest thing I've
-tried that actually works as needed. The log:
-  - is set to INFO by default
-  - rotates to a new file every day
-  - will save logs for 7 days max
-  - saves to a local logs/ directory inside this repo (excluded from git) because doing so
-    elsewhere does not guarantee user will have permissions to create files
-
-Refs used to create this:
-  - https://gist.github.com/gene1wood/73b715434c587d2240c21fc83fad7962
-  - https://timber.io/blog/the-pythonic-guide-to-logging/
-Ref for format:
-  - https://www.pylenin.com/blogs/python-logging-guide/#configuring-a-main-logger
-Ref for file config (not used):
-  - https://www.internalpointers.com/post/logging-python-sub-modules-and-configuration-files
-  - http://antonym.org/2005/03/a-real-python-logging-example.html
-Generic Logging Principles:
-  - https://peter.bourgon.org/blog/2017/02/21/metrics-tracing-and-logging.html
 """
 
 from signal import signal, SIGINT
@@ -42,7 +15,8 @@ import os
 from datetime import datetime
 from typing import List
 from time import sleep
-from email.message import EmailMessage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from selenium.webdriver.chrome.webdriver import WebDriver
 from scrape_availability import create_selenium_driver, scrape_campground
 from ridb_interface import get_facilities_from_ridb
@@ -53,39 +27,45 @@ logger = logging.getLogger(__name__)
 
 # set in ~/.virtualenvs/recgov_daemon/bin/postactivate
 GMAIL_USER = os.environ.get("gmail_user")
-GMAIL_PASSWORD = os.environ.get("gmail_password")
+GMAIL_APP_PASSWORD = os.environ.get("gmail_app_password")
 RETRY_WAIT = 300
 
 def send_email_alert(available_campgrounds: CampgroundList):
     """
     Send email alert to email address provided by argparse, from email address (and password)
     retrieved from environment variables. Currently use Google Mail to facilitate email
-    alerts. See references:
-        https://zetcode.com/python/smtplib/
-        https://realpython.com/python-send-email/#option-1-using-smtp_ssl
-        https://docs.python.org/3/library/smtplib.html
+    alerts. Currently using Google App Password to avoid "less secure app access" problems.
+    See references:
+        https://levelup.gitconnected.com/an-alternative-way-to-send-emails-in-python-5630a7efbe84
 
     :param available_campgrounds: CampgroundList object containing available campgrounds
         found in caller
     :returns: N/A
     """
     logger.info("Sending email alert for %d available campgrounds to %s.", len(available_campgrounds), args.email)
-    msg = EmailMessage()
+    smtp_server = "smtp.gmail.com"
+    port = 587  # For starttls
+    msg = MIMEMultipart()
     msg["From"] = GMAIL_USER
     msg["To"] = args.email
     msg["Subject"] = f"Alert for {len(available_campgrounds)} Available Campground on Recreation.gov"
     content = "The following campgrounds are now available!  Please excuse ugly JSON formatting.\n"
     content += json.dumps(available_campgrounds.serialize(), indent=4)
-    msg.set_content(content)
+    body_text = MIMEText(content, 'plain')  # don't bother with HTML formatting for now
+    msg.attach(body_text)
+    context = ssl.create_default_context()
     try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
-            server.ehlo()
-            server.login(GMAIL_USER, GMAIL_PASSWORD)
-            server.send_message(msg)
+        server = smtplib.SMTP(smtp_server, port)
+        server.ehlo()                       # check connection
+        server.starttls(context=context)    # Secure the connection
+        server.ehlo()                       # check connection
+        server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+        server.sendmail(GMAIL_USER, args.email, msg.as_string())
         logger.debug("\tEmail sent!")
     except Exception as e:
         logger.error("FAILURE: could not send email due to the following exception:\n%s",e)
+    finally:
+        server.quit()
 
 def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=None) -> CampgroundList:
     """
