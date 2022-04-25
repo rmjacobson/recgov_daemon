@@ -6,15 +6,19 @@ for a list of campgrounds provided by the user or found in RIDB search.
 """
 
 from signal import signal, SIGINT
+import asyncio
+import aiosmtplib
 import json
 import logging
 import argparse
 import smtplib
 import ssl
 import os
+import re
 from datetime import datetime
 from typing import List
 from time import sleep
+from email.message import EmailMessage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from selenium.webdriver.chrome.webdriver import WebDriver
@@ -28,6 +32,15 @@ logger = logging.getLogger(__name__)
 # set in ~/.virtualenvs/recgov_daemon/bin/postactivate
 GMAIL_USER = os.environ.get("gmail_user")
 GMAIL_APP_PASSWORD = os.environ.get("gmail_app_password")
+CARRIER_MAP = {
+    "verizon": "vtext.com",
+    "tmobile": "tmomail.net",
+    "sprint": "messaging.sprintpcs.com",
+    "at&t": "txt.att.net",
+    "boost": "smsmyboostmobile.com",
+    "cricket": "sms.cricketwireless.net",
+    "uscellular": "email.uscc.net",
+}
 RETRY_WAIT = 300
 
 def send_email_alert(available_campgrounds: CampgroundList):
@@ -66,6 +79,39 @@ def send_email_alert(available_campgrounds: CampgroundList):
         logger.error("FAILURE: could not send email due to the following exception:\n%s",e)
     finally:
         server.quit()
+
+async def send_text_alert(available_campgrounds: CampgroundList):
+    """
+    Original Source: https://github.com/acamso/demos/blob/master/_email/send_txt_msg.py
+
+    CARRIER_MAP Sources:
+    https://kb.sandisk.com/app/answers/detail/a_id/17056/~/list-of-mobile-carrier-gateway-addresses
+    https://www.gmass.co/blog/send-text-from-gmail/"""
+    
+    logger.info("Sending text alert for %d available campgrounds to %s.", len(available_campgrounds), args.email)
+    num = "9259485825"
+    to_email = CARRIER_MAP["at&t"]
+    smtp_server = "smtp.gmail.com"
+    port = 587  # For starttls
+
+    # build message
+    message = EmailMessage()
+    message["From"] = GMAIL_USER
+    message["To"] = f"{num}@{to_email}"
+    message["Subject"] = f"Alert for {len(available_campgrounds)} Available Campground on Recreation.gov"
+    content = "Available campground URLs:"
+    for campground in available_campgrounds:
+        content += f"\n{campground.url}"
+    message.set_content(content)
+
+    # send
+    send_kws = dict(username=GMAIL_USER,
+                    password=GMAIL_APP_PASSWORD,
+                    hostname=smtp_server, port=port, start_tls=True)
+    res = await aiosmtplib.send(message, **send_kws)  # type: ignore
+    res_msg = "failed" if not re.search(r"\sOK\s", res[1]) else "succeeded"
+    logger.info("\tMessage send status: %s",res_msg)
+    return res
 
 def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=None) -> CampgroundList:
     """
@@ -133,6 +179,8 @@ def compare_availability(selenium_driver: WebDriver, campground_list: Campground
             campground_list.remove(campground)
     if len(available) > 0:
         send_email_alert(available)
+        coro = send_text_alert(available)
+        asyncio.run(coro)
 
 def parse_start_day(arg: str) -> datetime:
     """

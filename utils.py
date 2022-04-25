@@ -86,5 +86,5 @@ def setup_logging() -> None:
     logging.basicConfig(
         handlers=[rotating_handler],
         level=logging.INFO,
-        format="[%(asctime)s] %(filename)s:%(lineno)d [%(name)s]%(levelname)s - %(message)s",
+        format="[%(asctime)s] %(levelname)-8s [%(filename)s:%(lineno)d:%(funcName)s] %(message)s",
     )
