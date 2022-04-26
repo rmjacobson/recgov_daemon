@@ -19,8 +19,6 @@ from datetime import datetime
 from typing import List
 from time import sleep
 from email.message import EmailMessage
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from selenium.webdriver.chrome.webdriver import WebDriver
 from scrape_availability import create_selenium_driver, scrape_campground
 from ridb_interface import get_facilities_from_ridb
@@ -43,74 +41,33 @@ CARRIER_MAP = {
 }
 RETRY_WAIT = 300
 
-def send_email_alert(available_campgrounds: CampgroundList):
+async def send_email_base(message: EmailMessage):
     """
-    Send email alert to email address provided by argparse, from email address (and password)
-    retrieved from environment variables. Currently use Google Mail to facilitate email
-    alerts. Currently using Google App Password to avoid "less secure app access" problems.
-    See references:
-        https://levelup.gitconnected.com/an-alternative-way-to-send-emails-in-python-5630a7efbe84
-
-    :param available_campgrounds: CampgroundList object containing available campgrounds
-        found in caller
-    :returns: N/A
+    TODO: write docs + finish new SMTP object stuff + deal with error that happens on CTRL-C
+    Note that because SMTP is a sequential protocol, `aiosmtplib.send` must be
+    executed in sequence as well, which means that doing this asyncronously is essentially
+    equivalent to doing it normally. To get the benefit, we need to create a new connection
+    object entirely for different emails (in this case we create 2 of them).
+    Ref: https://aiosmtplib.readthedocs.io/en/v1.0.6/overview.html#parallel-execution
     """
-    logger.info("Sending email alert for %d available campgrounds to %s.", len(available_campgrounds), args.email)
-    smtp_server = "smtp.gmail.com"
-    port = 587  # For starttls
-    msg = MIMEMultipart()
-    msg["From"] = GMAIL_USER
-    msg["To"] = args.email
-    msg["Subject"] = f"Alert for {len(available_campgrounds)} Available Campground on Recreation.gov"
-    content = "The following campgrounds are now available!  Please excuse ugly JSON formatting.\n"
-    content += json.dumps(available_campgrounds.serialize(), indent=4)
-    body_text = MIMEText(content, 'plain')  # don't bother with HTML formatting for now
-    msg.attach(body_text)
-    context = ssl.create_default_context()
-    try:
-        server = smtplib.SMTP(smtp_server, port)
-        server.ehlo()                       # check connection
-        server.starttls(context=context)    # Secure the connection
-        server.ehlo()                       # check connection
-        server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-        server.sendmail(GMAIL_USER, args.email, msg.as_string())
-        logger.debug("\tEmail sent!")
-    except Exception as e:
-        logger.error("FAILURE: could not send email due to the following exception:\n%s",e)
-    finally:
-        server.quit()
-
-async def send_text_alert(available_campgrounds: CampgroundList):
-    """
-    Original Source: https://github.com/acamso/demos/blob/master/_email/send_txt_msg.py
-
-    CARRIER_MAP Sources:
-    https://kb.sandisk.com/app/answers/detail/a_id/17056/~/list-of-mobile-carrier-gateway-addresses
-    https://www.gmass.co/blog/send-text-from-gmail/"""
+    logger.info("Sending alert for available campgrounds to %s.", message["To"])
+    smtp_server = "smtp.gmail.com"      # hardcode using gmail for now
+    port = 587                          # ensure starttls
     
-    logger.info("Sending text alert for %d available campgrounds to %s.", len(available_campgrounds), args.email)
-    num = "9259485825"
-    to_email = CARRIER_MAP["at&t"]
-    smtp_server = "smtp.gmail.com"
-    port = 587  # For starttls
-
-    # build message
-    message = EmailMessage()
-    message["From"] = GMAIL_USER
-    message["To"] = f"{num}@{to_email}"
-    message["Subject"] = f"Alert for {len(available_campgrounds)} Available Campground on Recreation.gov"
-    content = "Available campground URLs:"
-    for campground in available_campgrounds:
-        content += f"\n{campground.url}"
-    message.set_content(content)
-
-    # send
-    send_kws = dict(username=GMAIL_USER,
-                    password=GMAIL_APP_PASSWORD,
-                    hostname=smtp_server, port=port, start_tls=True)
-    res = await aiosmtplib.send(message, **send_kws)  # type: ignore
-    res_msg = "failed" if not re.search(r"\sOK\s", res[1]) else "succeeded"
-    logger.info("\tMessage send status: %s",res_msg)
+    # TODO: create new SMTP object entirely for each thing we're doing
+    # https://aiosmtplib.readthedocs.io/en/v1.0.6/api.html#the-smtp-class
+    
+    # send_kws = dict(username=GMAIL_USER,
+    #                 password=GMAIL_APP_PASSWORD,
+    #                 hostname=smtp_server, port=port, start_tls=True)
+    async with aiosmtplib.SMTP(
+            username=GMAIL_USER,
+            password=GMAIL_APP_PASSWORD,
+            hostname=smtp_server, port=port, start_tls=True) as smtp:
+        res = await smtp.send_message(message)
+    # res = await aiosmtplib.send(message, **send_kws)  # type: ignore
+    # res_msg = "failed" if not re.search(r"\sOK\s", res[1]) else "succeeded"
+    # logger.info("\tMessage send status: %s",res_msg)
     return res
 
 def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=None) -> CampgroundList:
@@ -149,7 +106,7 @@ def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=No
 
     return campgrounds_from_facilities
 
-def compare_availability(selenium_driver: WebDriver, campground_list: CampgroundList, start_date, num_days) -> None:
+def compare_availability(selenium_driver: WebDriver, campground_list: CampgroundList, start_date, num_days) -> CampgroundList:
     """
     Given a list of Campground objects, find out if any campgrounds' availability has changed
     since the last time we looked.
@@ -177,10 +134,42 @@ def compare_availability(selenium_driver: WebDriver, campground_list: Campground
             err_msg = f"Campground errored more than 5 times in a row, removing it from list:\n{campground.pretty()}"
             logger.error(err_msg)
             campground_list.remove(campground)
-    if len(available) > 0:
-        send_email_alert(available)
-        coro = send_text_alert(available)
-        asyncio.run(coro)
+    
+    return available
+
+async def send_alerts(available_campgrounds: CampgroundList) -> None:
+    """
+    Builds and sends 2 emails:
+      - one for an email alert sent to a convetional email address
+      - one for a text alert sent via carrier email/text gateway
+    Uses asyncio because it saves a *tiny* amount of time and to experiment for later
+    asynchronicity.
+    """
+    # build email message
+    email_alert_msg = EmailMessage()
+    email_alert_msg["From"] = GMAIL_USER
+    email_alert_msg["To"] = args.email
+    email_alert_msg["Subject"] = f"Alert for \
+        {len(available_campgrounds)} Available Campground on Recreation.gov"
+    content = "The following campgrounds are now available! Please excuse ugly JSON formatting.\n"
+    content += json.dumps(available_campgrounds.serialize(), indent=4)
+    email_alert_msg.set_content(content)
+    
+    # build text message
+    num = args.text
+    to_email = CARRIER_MAP[args.carrier]
+    text_alert_msg = EmailMessage()
+    text_alert_msg["From"] = GMAIL_USER
+    text_alert_msg["To"] = f"{num}@{to_email}"
+    text_alert_msg["Subject"] = f"{len(available_campgrounds)} New Campgrounds Available"
+    content = ""
+    for campground in available_campgrounds:
+        content += f"\n{campground.url}"
+    text_alert_msg.set_content(content)
+
+    # send alerts with asyncio to save a tiny amountsof time + it's what the kool kids do
+    tasks = [send_email_base(email_alert_msg), send_email_base(text_alert_msg)]
+    await asyncio.gather(*tasks)
 
 def parse_start_day(arg: str) -> datetime:
     """
@@ -203,6 +192,22 @@ def parse_id_args(arg: str) -> List[str]:
         user_facilities = list(zip(["Name Unknown (User Provided)"]*len(user_facilities_list), user_facilities_list))
         return user_facilities
     return None
+
+def validate_carrier(arg:str) -> str:
+    """
+    Carrier has to be something that we can map back to a gateway, so
+    check that the entered text is a key in the carrier map dict. Accept
+    mixture of uppercase/lowercase just to be nice.
+
+    :param arg: the user-entered carrier name
+    :returns: lowercase str version of the entered carrier if present in carrier map dict
+    """
+    lowercase_arg = arg.lower()
+    if lowercase_arg not in CARRIER_MAP.keys():
+        logger.error("KeyError: carrier '%s' not found in CARRIER_MAP dict:\n%s",
+                    lowercase_arg,json.dumps(CARRIER_MAP))
+        exit(1)
+    return lowercase_arg
 
 def run():
     """
@@ -227,7 +232,9 @@ def run():
         if args.start_date < datetime.now():
             logger.info("Desired start date has passed, ending process...")
             exit_gracefully(None, None, driver)
-        compare_availability(driver, campgrounds, args.start_date, args.num_days)
+        available = compare_availability(driver, campgrounds, args.start_date, args.num_days)
+        if len(available) > 0:
+            asyncio.run(send_alerts(available))
         sleep(RETRY_WAIT)  # sleep for RETRY_WAIT time before checking campgrounds again
 
 if __name__ == "__main__":
@@ -241,6 +248,10 @@ if __name__ == "__main__":
         help="Number of days you want to camp (e.g. 2).")
     parser.add_argument("-e", "--email", type=str, required=True,
         help="Email address at which you want to receive notifications (ex: first.last@example.com).")
+    parser.add_argument("-t", "--text", type=str, required=True,
+        help="Phone number at which you want to receive text notifications (ex: 9998887777).")
+    parser.add_argument("-c", "--carrier", type=validate_carrier, required=True,
+        help="Cell carrier for your phone number, required to send texts (ex: 'at&t', 'verison', 'tmobile','sprint', etc.).")
     parser.add_argument("--lat", type=float,
         help="Latitude of location you want to search for (e.g. 35.994431 for Ponderosa Campground).")
     parser.add_argument("--lon", type=float,
