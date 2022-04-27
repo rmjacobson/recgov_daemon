@@ -41,8 +41,14 @@ CARRIER_MAP = {
 }
 RETRY_WAIT = 300
 
-async def send_email_base(message: EmailMessage):
+def send_email_base(message: EmailMessage) -> None:
     """
+    We send both texts and emails via this base function. For now, we're hardcoding GMAIL
+    as our email service because that's what we use in development. Another user/dev should
+    be able to change these values fairly easily.
+
+    Retry sending email 5 times before exiting with failure if we can't send an email.
+    
     TODO: write docs + finish new SMTP object stuff + deal with error that happens on CTRL-C
     Note that because SMTP is a sequential protocol, `aiosmtplib.send` must be
     executed in sequence as well, which means that doing this asyncronously is essentially
@@ -53,22 +59,21 @@ async def send_email_base(message: EmailMessage):
     logger.info("Sending alert for available campgrounds to %s.", message["To"])
     smtp_server = "smtp.gmail.com"      # hardcode using gmail for now
     port = 587                          # ensure starttls
-    
-    # TODO: create new SMTP object entirely for each thing we're doing
-    # https://aiosmtplib.readthedocs.io/en/v1.0.6/api.html#the-smtp-class
-    
-    # send_kws = dict(username=GMAIL_USER,
-    #                 password=GMAIL_APP_PASSWORD,
-    #                 hostname=smtp_server, port=port, start_tls=True)
-    async with aiosmtplib.SMTP(
-            username=GMAIL_USER,
-            password=GMAIL_APP_PASSWORD,
-            hostname=smtp_server, port=port, start_tls=True) as smtp:
-        res = await smtp.send_message(message)
-    # res = await aiosmtplib.send(message, **send_kws)  # type: ignore
-    # res_msg = "failed" if not re.search(r"\sOK\s", res[1]) else "succeeded"
-    # logger.info("\tMessage send status: %s",res_msg)
-    return res
+    num_retries = 5
+    # TODO fix this to actually do SSL stuff again because we lost that :/
+    for i in range(num_retries):
+        with smtplib.SMTP_SSL(
+                username=GMAIL_USER, password=GMAIL_APP_PASSWORD,
+                hostname=smtp_server, port=port, start_tls=True) as smtp:
+            res = smtp.send_message(message)
+        success = False if not re.search(r"\sOK\s", res[1]) else True
+        if success:
+            break
+        if not success:
+            logger.error("\t%s", str(res))
+        if i == (num_retries - 1):
+            logger.error("Failed to send email alert %d times; exiting with failure", num_retries)
+            exit(1)
 
 def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=None) -> CampgroundList:
     """
@@ -137,7 +142,7 @@ def compare_availability(selenium_driver: WebDriver, campground_list: Campground
     
     return available
 
-async def send_alerts(available_campgrounds: CampgroundList) -> None:
+def send_alerts(available_campgrounds: CampgroundList) -> None:
     """
     Builds and sends 2 emails:
       - one for an email alert sent to a convetional email address
@@ -167,9 +172,9 @@ async def send_alerts(available_campgrounds: CampgroundList) -> None:
         content += f"\n{campground.url}"
     text_alert_msg.set_content(content)
 
-    # send alerts with asyncio to save a tiny amountsof time + it's what the kool kids do
-    tasks = [send_email_base(email_alert_msg), send_email_base(text_alert_msg)]
-    await asyncio.gather(*tasks)
+    # send alerts; retry 5 times if one fails
+    send_email_base(email_alert_msg)
+    send_email_base(text_alert_msg)
 
 def parse_start_day(arg: str) -> datetime:
     """
@@ -234,7 +239,7 @@ def run():
             exit_gracefully(None, None, driver)
         available = compare_availability(driver, campgrounds, args.start_date, args.num_days)
         if len(available) > 0:
-            asyncio.run(send_alerts(available))
+            send_alerts(available)
         sleep(RETRY_WAIT)  # sleep for RETRY_WAIT time before checking campgrounds again
 
 if __name__ == "__main__":
