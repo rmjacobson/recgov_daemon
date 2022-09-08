@@ -41,7 +41,7 @@ CARRIER_MAP = {
 }
 RETRY_WAIT = 300
 
-def send_email_base(message: EmailMessage) -> None:
+def send_email_base(receiver_addr, message: EmailMessage) -> None:
     """
     We send both texts and emails via this base function. For now, we're hardcoding GMAIL
     as our email service because that's what we use in development. Another user/dev should
@@ -58,22 +58,39 @@ def send_email_base(message: EmailMessage) -> None:
     """
     logger.info("Sending alert for available campgrounds to %s.", message["To"])
     smtp_server = "smtp.gmail.com"      # hardcode using gmail for now
-    port = 587                          # ensure starttls
+    port = 465                          # ensure starttls
     num_retries = 5
     # TODO fix this to actually do SSL stuff again because we lost that :/
-    for i in range(num_retries):
-        with smtplib.SMTP_SSL(
-                username=GMAIL_USER, password=GMAIL_APP_PASSWORD,
-                hostname=smtp_server, port=port, start_tls=True) as smtp:
-            res = smtp.send_message(message)
-        success = False if not re.search(r"\sOK\s", res[1]) else True
-        if success:
-            break
-        if not success:
-            logger.error("\t%s", str(res))
-        if i == (num_retries - 1):
+    for attempts in range(num_retries):
+        # success = False
+        # try:
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+            server.ehlo()
+            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+            
+            """
+            # TODO this is the part giving me trouble. this elho/login/send_message block works, but
+            # want to to be able to retry this block many times
+            # but also want to be able to break out of it
+            # res seems to always be the empty dict i.e. "{}" on success but not sure why because that's not how it used to be?
+            # might not need to check return code and just catch exceptions instead, but will need to figure
+            # out how to wrap a try block in retries...
+            """
+            res = server.send_message(message)
+            logger.info(res)
+            # success = False if not re.search(r"\sOK\s", res[1]) else True
+        logger.debug("\tEmail sent!")
+        # except Exception as e:
+        #     logger.error("FAILURE: could not send email due to the following exception; retrying %d times:\n%s", num_retries-attempts, e)
+        # if success:
+        #     break
+        # if not success:
+        #     logger.error("\t%s", str(res))
+        if attempts == (num_retries - 1):
             logger.error("Failed to send email alert %d times; exiting with failure", num_retries)
             exit(1)
+    logger.info("Sent alert for available campgrounds to %s.", message["To"])
 
 def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=None) -> CampgroundList:
     """
@@ -173,8 +190,8 @@ def send_alerts(available_campgrounds: CampgroundList) -> None:
     text_alert_msg.set_content(content)
 
     # send alerts; retry 5 times if one fails
-    send_email_base(email_alert_msg)
-    send_email_base(text_alert_msg)
+    send_email_base(args.email, email_alert_msg)
+    send_email_base(f"{num}@{to_email}", text_alert_msg)
 
 def parse_start_day(arg: str) -> datetime:
     """
