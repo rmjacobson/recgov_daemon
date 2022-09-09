@@ -41,7 +41,7 @@ CARRIER_MAP = {
 }
 RETRY_WAIT = 300
 
-def send_email_base(receiver_addr, message: EmailMessage) -> None:
+def send_email(receiver_addr, message: EmailMessage) -> None:
     """
     We send both texts and emails via this base function. For now, we're hardcoding GMAIL
     as our email service because that's what we use in development. Another user/dev should
@@ -60,37 +60,31 @@ def send_email_base(receiver_addr, message: EmailMessage) -> None:
     smtp_server = "smtp.gmail.com"      # hardcode using gmail for now
     port = 465                          # ensure starttls
     num_retries = 5
-    # TODO fix this to actually do SSL stuff again because we lost that :/
+    
     for attempts in range(num_retries):
-        # success = False
-        # try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
-            server.ehlo()
-            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-            
-            """
-            # TODO this is the part giving me trouble. this elho/login/send_message block works, but
-            # want to to be able to retry this block many times
-            # but also want to be able to break out of it
-            # res seems to always be the empty dict i.e. "{}" on success but not sure why because that's not how it used to be?
-            # might not need to check return code and just catch exceptions instead, but will need to figure
-            # out how to wrap a try block in retries...
-            """
-            res = server.send_message(message)
-            logger.info(res)
-            # success = False if not re.search(r"\sOK\s", res[1]) else True
-        logger.debug("\tEmail sent!")
-        # except Exception as e:
-        #     logger.error("FAILURE: could not send email due to the following exception; retrying %d times:\n%s", num_retries-attempts, e)
-        # if success:
-        #     break
-        # if not success:
-        #     logger.error("\t%s", str(res))
-        if attempts == (num_retries - 1):
-            logger.error("Failed to send email alert %d times; exiting with failure", num_retries)
-            exit(1)
+        try:
+            context = ssl.create_default_context()
+            # with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+            with smtplib.SMTP(smtp_server, port=587) as server:
+                context = ssl.create_default_context()
+                server.starttls(context=context)
+                # server.ehlo()
+                server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+                server.send_message(message)
+            break
+        except (smtplib.SMTPRecipientsRefused, 
+                smtplib.SMTPHeloError, 
+                smtplib.SMTPSenderRefused, 
+                smtplib.SMTPDataError, 
+                smtplib.SMTPNotSupportedError, 
+                smtplib.SMTPAuthenticationError, 
+                smtplib.SMTPException) as e:
+            logger.error("FAILURE: could not send email due to the following exception; retrying %d times:\n%s", num_retries-attempts, e)
+    else:  # will run if we didn't break out of the loop, so only failures
+        logger.error("Failed to send alert %d times; exiting with failure", num_retries)
+        return False
     logger.info("Sent alert for available campgrounds to %s.", message["To"])
+    return True
 
 def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=None) -> CampgroundList:
     """
@@ -189,9 +183,9 @@ def send_alerts(available_campgrounds: CampgroundList) -> None:
         content += f"\n{campground.url}"
     text_alert_msg.set_content(content)
 
-    # send alerts; retry 5 times if one fails
-    send_email_base(args.email, email_alert_msg)
-    send_email_base(f"{num}@{to_email}", text_alert_msg)
+    # send alerts; retry 5 times if doesn't succeed; exit gracefully if fails repeatedly
+    res = send_email(args.email, email_alert_msg) and send_email(f"{num}@{to_email}", text_alert_msg)
+    return res
 
 def parse_start_day(arg: str) -> datetime:
     """
@@ -231,6 +225,24 @@ def validate_carrier(arg:str) -> str:
         exit(1)
     return lowercase_arg
 
+def validate_num_sites(arg:int) -> int:
+    """
+    Number of campsites has to be an integer >0 and <10 for sanity's sake.
+
+    :param arg: user-entered number of sites
+    :returns: integer 1-9 inclusive
+    """
+    if type(arg) != int:
+        logger.error("User input for number of campsites not an int.")
+        exit(1)
+    if arg > 9:
+        logger.error("User input for number of campsites (%d) too large (must be <10")
+        exit(1)
+    if arg < 1:
+        logger.error("User input for number of campsites (%d) too small (must be > 1")
+        exit(1)
+    return arg
+
 def run():
     """
     Run the daemon after SIGINT has been captured and arguments have been parsed.
@@ -256,7 +268,8 @@ def run():
             exit_gracefully(None, None, driver)
         available = compare_availability(driver, campgrounds, args.start_date, args.num_days)
         if len(available) > 0:
-            send_alerts(available)
+            if not send_alerts(available):
+                exit_gracefully(None, None, driver)
         sleep(RETRY_WAIT)  # sleep for RETRY_WAIT time before checking campgrounds again
 
 if __name__ == "__main__":
@@ -282,6 +295,8 @@ if __name__ == "__main__":
         help="Radius in miles of the area you want to search, centered on lat/lon (e.g. 25).")
     parser.add_argument("--campground_ids", type=parse_id_args,
         help="Comma-separated list of campground facility IDs you want to check (e.g. `233116,231962`).")
+    parser.add_argument("--num_sites", type=validate_num_sites,
+        help="Number of campsites you need at each campground; defaults to 1, validated to be >0 and <10.")
     args = parser.parse_args()
     setup_logging()
     run()
