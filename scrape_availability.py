@@ -70,15 +70,15 @@ def parse_html_table(table: BeautifulSoup) -> DataFrame:
             df.iat[row_idx,cell_idx] = cell.get_text()
     return df
 
-def all_dates_available(df: DataFrame, start_date: datetime, num_days: int) -> bool:
+def all_dates_available(df: DataFrame, start_date: datetime, num_days: int, req_available_sites: int = 1) -> bool:
     """
     Parse pandas DataFrame for the specific date columns matching the start date and number
     of nights we want to stay, search for 'A' string in df cells. Return True if every column
     has an availability (inlcuding if the daily availabilities are in different sites/rows).
 
     :param df: pandas DataFrame parsed from recreation.gov campground website
-    :returns: True if every relevant date column contains at least one available 'A' cell,
-        False otherwise
+    :returns: minimum number of available campsites over the requested period if every relevant
+        date column contains at least `num_sites` available 'A' cell(s), False otherwise
     """
     # get column names corresponding to days we want to stay at the campground
     abbr_dates = []
@@ -87,15 +87,19 @@ def all_dates_available(df: DataFrame, start_date: datetime, num_days: int) -> b
         abbr_date_str = abbr_date.strftime("%a%-d")
         abbr_dates.append(abbr_date_str)
 
-    # cycle through date columns to check if there's at least one available site for each day
+    # cycle through date columns to check if there's at least `req_available_sites` for each day
+    tmp = 100
     at_least_one_available = True
     for col in df[abbr_dates].columns:
-        at_least_one_available = (df[col] == "A").any()
+        num_available_sites = df[col].value_counts()["A"]
+        at_least_one_available = num_available_sites >= req_available_sites
         if not at_least_one_available:
-            logger.debug("Found column (aka date) with no availability --> stopping search of table")
-            break
+            logger.debug("Found column (aka date) with only %d sites available (%d required); stopping search of table", num_available_sites, req_available_sites)
+            return False
+        if num_available_sites < tmp:
+            tmp = num_available_sites
 
-    return at_least_one_available
+    return num_available_sites
 
 def create_selenium_driver(headless: bool=True) -> WebDriver:
     """
@@ -167,7 +171,7 @@ def is_bad_date(driver: WebDriver, element_id) -> Tuple[bool, str]:
         return (True, "new error")
     return (False, "all good")
 
-def scrape_campground(driver: WebDriver, campground: Campground, start_date: datetime, num_days: int) -> bool:
+def scrape_campground(driver: WebDriver, campground: Campground, start_date: datetime, num_days: int, num_sites: int = 1) -> bool:
     """
     Use Selenium WebDriver to load page, input desired start date, identify availability table
     for new data, use BeautifulSoup to parse html table, and use pandas DataFrame to identify
@@ -234,9 +238,9 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
         table_html = availability_table.get_attribute('outerHTML')
         soup = BeautifulSoup(table_html, 'html.parser')
         df = parse_html_table(soup)
-        dates_available = all_dates_available(df, start_date, num_days)
+        num_sites_available = all_dates_available(df, start_date, num_days, num_sites)
         campground.error_count = 0      # if not errored -> reset error count to 0
-        return dates_available
+        return num_sites_available
     except Exception as e:
         campground.error_count += 1     # if errored -> inc error count
         logger.exception("Campground %s (%s) parsing error!\n%s", campground.name, campground.id, e)
@@ -253,10 +257,11 @@ def run():
     # mcgill = "https://www.recreation.gov/camping/campgrounds/231962/availability"
     mcgill_start_date = datetime.strptime("05/31/2022", "%m/%d/%Y")
     num_days = 2
+    num_sites = 1
     mcgill_campground = Campground(name="McGill", facility_id="231962")
 
     driver = create_selenium_driver(headless=True)
-    if scrape_campground(driver, mcgill_campground, mcgill_start_date, num_days):
+    if scrape_campground(driver, mcgill_campground, mcgill_start_date, num_days, num_sites):
         logger.info("WE HAVE SOMETHING AVAILABLE!")
     else:
         logger.info("sad")

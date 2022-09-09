@@ -58,17 +58,15 @@ def send_email(receiver_addr, message: EmailMessage) -> None:
     """
     logger.info("Sending alert for available campgrounds to %s.", message["To"])
     smtp_server = "smtp.gmail.com"      # hardcode using gmail for now
-    port = 465                          # ensure starttls
+    port = 587                          # ensure starttls
     num_retries = 5
     
     for attempts in range(num_retries):
         try:
             context = ssl.create_default_context()
-            # with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
-            with smtplib.SMTP(smtp_server, port=587) as server:
+            with smtplib.SMTP(smtp_server, port=port) as server:
                 context = ssl.create_default_context()
                 server.starttls(context=context)
-                # server.ehlo()
                 server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
                 server.send_message(message)
             break
@@ -122,7 +120,7 @@ def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=No
 
     return campgrounds_from_facilities
 
-def compare_availability(selenium_driver: WebDriver, campground_list: CampgroundList, start_date, num_days) -> CampgroundList:
+def compare_availability(selenium_driver: WebDriver, campground_list: CampgroundList, start_date, num_days: int, num_sites: int = 1) -> CampgroundList:
     """
     Given a list of Campground objects, find out if any campgrounds' availability has changed
     since the last time we looked.
@@ -133,13 +131,16 @@ def compare_availability(selenium_driver: WebDriver, campground_list: Campground
     available = CampgroundList()
     for campground in campground_list:
         logger.debug("\tComparing availability for %s (%s)", campground.name, campground.id)
-        if campground.available:
+        if campground.sites_available:
             logger.debug("Skipping %s (%s) because an available site already found", campground.name, campground.id)
-        elif (not campground.available and scrape_campground(selenium_driver, campground, start_date, num_days)):
-            logger.info("%s (%s) is now available! Adding to email list.", campground.name, campground.id)
+            continue
+        campground.sites_available = scrape_campground(selenium_driver, campground, start_date, num_days, num_sites)
+        if campground.sites_available:
+            logger.info("%s (%s) is now available! Adding to email list and removing from active search list.", campground.name, campground.id)
             campground.available = True
             available.append(campground)
-            logger.debug("\tAdding the following to available list %s", json.dumps(campground.jsonify()))
+            logger.debug("\tAdditional info for new available campground: %s", json.dumps(campground.jsonify()))
+            campground_list.remove(campground)
         else:
             logger.info("%s (%s) is not available, trying again in %s seconds",
                 campground.name, campground.id, RETRY_WAIT)
@@ -225,21 +226,16 @@ def validate_carrier(arg:str) -> str:
         exit(1)
     return lowercase_arg
 
-def validate_num_sites(arg:int) -> int:
+def validate_num_sites(arg:str) -> int:
     """
-    Number of campsites has to be an integer >0 and <10 for sanity's sake.
+    Number of campsites has to be an integer >= 1 for sanity's sake.
 
     :param arg: user-entered number of sites
-    :returns: integer 1-9 inclusive
+    :returns: integer >= 1
     """
-    if type(arg) != int:
-        logger.error("User input for number of campsites not an int.")
-        exit(1)
-    if arg > 9:
-        logger.error("User input for number of campsites (%d) too large (must be <10")
-        exit(1)
+    arg = int(arg)
     if arg < 1:
-        logger.error("User input for number of campsites (%d) too small (must be > 1")
+        logger.error("User input for number of campsites (%d) too small (must be > 1)", arg)
         exit(1)
     return arg
 
@@ -256,21 +252,24 @@ def run():
         ridb_args_error_msg = ("daemon.py:__main__: At least one RIDB argument was passed but at least one "
             "RIDB arg is missing or None; combination fails. Check CLI args and try again.")
         raise ValueError(ridb_args_error_msg)
-    campgrounds = get_all_campgrounds_by_id(args.campground_ids, ridb_facilities)
-    logger.info(json.dumps(campgrounds.serialize(), indent=2))
+    search_list = get_all_campgrounds_by_id(args.campground_ids, ridb_facilities)
+    logger.info(json.dumps(search_list.serialize(), indent=2))
 
     driver = create_selenium_driver()
 
-    # check campground availability until stopped by user or start_date has passed
+    # check campground availability until stopped by user OR start_date has passed OR no more campgrounds in search_list 
     while True:
         if args.start_date < datetime.now():
             logger.info("Desired start date has passed, ending process...")
             exit_gracefully(None, None, driver)
-        available = compare_availability(driver, campgrounds, args.start_date, args.num_days)
+        available = compare_availability(driver, search_list, args.start_date, args.num_days, args.num_sites)
         if len(available) > 0:
             if not send_alerts(available):
                 exit_gracefully(None, None, driver)
-        sleep(RETRY_WAIT)  # sleep for RETRY_WAIT time before checking campgrounds again
+        if len(search_list) == 0:
+            logger.info("All campgrounds to be searched have either been found or errored multiple times, ending process...")
+            exit_gracefully(None, None, driver)
+        sleep(RETRY_WAIT)  # sleep for RETRY_WAIT time before checking search_list again
 
 if __name__ == "__main__":
     signal(SIGINT, exit_gracefully)     # add custom handler for SIGINT/CTRL-C
@@ -296,7 +295,7 @@ if __name__ == "__main__":
     parser.add_argument("--campground_ids", type=parse_id_args,
         help="Comma-separated list of campground facility IDs you want to check (e.g. `233116,231962`).")
     parser.add_argument("--num_sites", type=validate_num_sites,
-        help="Number of campsites you need at each campground; defaults to 1, validated to be >0 and <10.")
+        help="Number of campsites you need at each campground; defaults to 1, validated to be >0.")
     args = parser.parse_args()
     setup_logging()
     run()
