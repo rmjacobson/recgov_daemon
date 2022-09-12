@@ -12,11 +12,13 @@ import argparse
 import smtplib
 import ssl
 import os
+import sys
 from datetime import datetime
 from typing import List
 from time import sleep
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+from email.message import EmailMessage
+# import asyncio
+# import aiosmtplib
 from selenium.webdriver.chrome.webdriver import WebDriver
 from scrape_availability import create_selenium_driver, scrape_campground
 from ridb_interface import get_facilities_from_ridb
@@ -28,44 +30,63 @@ logger = logging.getLogger(__name__)
 # set in ~/.virtualenvs/recgov_daemon/bin/postactivate
 GMAIL_USER = os.environ.get("gmail_user")
 GMAIL_APP_PASSWORD = os.environ.get("gmail_app_password")
+CARRIER_MAP = {
+    "verizon": "vtext.com",
+    "tmobile": "tmomail.net",
+    "sprint": "messaging.sprintpcs.com",
+    "at&t": "txt.att.net",
+    "boost": "smsmyboostmobile.com",
+    "cricket": "sms.cricketwireless.net",
+    "uscellular": "email.uscc.net",
+}
 RETRY_WAIT = 300
 
-def send_email_alert(available_campgrounds: CampgroundList):
+def email_notification(message: EmailMessage) -> None:
     """
-    Send email alert to email address provided by argparse, from email address (and password)
-    retrieved from environment variables. Currently use Google Mail to facilitate email
-    alerts. Currently using Google App Password to avoid "less secure app access" problems.
-    See references:
-        https://levelup.gitconnected.com/an-alternative-way-to-send-emails-in-python-5630a7efbe84
+    We send both texts and emails via this base function. For now, we're hardcoding GMAIL
+    as our email service because that's what we use in development. Another user/dev should
+    be able to easily change this configuration.
 
-    :param available_campgrounds: CampgroundList object containing available campgrounds
-        found in caller
-    :returns: N/A
+    Retry sending email 5 times before returning with failure if we can't send an email.
+
+    :param message: EmailMessage object to enable using send_message rather than sendmail.
+    :returns: True if notification sent correctly, False otherwise.
+
+    TODO: make notifications asynchronous
+    Note that because SMTP is a sequential protocol, `aiosmtplib.send` must be
+    executed in sequence as well, which means that doing this asyncronously is essentially
+    equivalent to doing it normally. To get the benefit, we need to create a new connection
+    object entirely for different emails (in this case we create 2 of them).
+    Ref: https://aiosmtplib.readthedocs.io/en/v1.0.6/overview.html#parallel-execution
     """
-    logger.info("Sending email alert for %d available campgrounds to %s.", len(available_campgrounds), args.email)
-    smtp_server = "smtp.gmail.com"
-    port = 587  # For starttls
-    msg = MIMEMultipart()
-    msg["From"] = GMAIL_USER
-    msg["To"] = args.email
-    msg["Subject"] = f"Alert for {len(available_campgrounds)} Available Campground on Recreation.gov"
-    content = "The following campgrounds are now available!  Please excuse ugly JSON formatting.\n"
-    content += json.dumps(available_campgrounds.serialize(), indent=4)
-    body_text = MIMEText(content, 'plain')  # don't bother with HTML formatting for now
-    msg.attach(body_text)
-    context = ssl.create_default_context()
-    try:
-        server = smtplib.SMTP(smtp_server, port)
-        server.ehlo()                       # check connection
-        server.starttls(context=context)    # Secure the connection
-        server.ehlo()                       # check connection
-        server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-        server.sendmail(GMAIL_USER, args.email, msg.as_string())
-        logger.debug("\tEmail sent!")
-    except Exception as e:
-        logger.error("FAILURE: could not send email due to the following exception:\n%s",e)
-    finally:
-        server.quit()
+    logger.info("Sending alert for available campgrounds to %s.", message["To"])
+    smtp_server = "smtp.gmail.com"      # hardcode using gmail for now
+    port = 587                          # ensure starttls
+    num_retries = 5
+
+    for attempts in range(num_retries):
+        try:
+            context = ssl.create_default_context()
+            with smtplib.SMTP(smtp_server, port=port) as server:
+                context = ssl.create_default_context()
+                server.starttls(context=context)
+                server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+                server.send_message(message)
+            break
+        except (smtplib.SMTPRecipientsRefused,
+                smtplib.SMTPHeloError,
+                smtplib.SMTPSenderRefused,
+                smtplib.SMTPDataError,
+                smtplib.SMTPNotSupportedError,
+                smtplib.SMTPAuthenticationError,
+                smtplib.SMTPException) as exp:
+            logger.error("FAILURE: could not send email due to the following exception; retrying %d times:\n%s",
+                num_retries-attempts, exp)
+    else:  # will run if we didn't break out of the loop, so only failures
+        logger.error("Failed to send alert %d times; exiting with failure", num_retries)
+        return False
+    logger.info("Sent alert for available campgrounds to %s.", message["To"])
+    return True
 
 def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=None) -> CampgroundList:
     """
@@ -103,7 +124,7 @@ def get_all_campgrounds_by_id(user_facs: List[str]=None, ridb_facs: List[str]=No
 
     return campgrounds_from_facilities
 
-def compare_availability(selenium_driver: WebDriver, campground_list: CampgroundList, start_date, num_days) -> None:
+def compare_availability(selenium_driver: WebDriver, campground_list: CampgroundList, start_date, num_days: int, num_sites: int = 1) -> CampgroundList:
     """
     Given a list of Campground objects, find out if any campgrounds' availability has changed
     since the last time we looked.
@@ -114,13 +135,16 @@ def compare_availability(selenium_driver: WebDriver, campground_list: Campground
     available = CampgroundList()
     for campground in campground_list:
         logger.debug("\tComparing availability for %s (%s)", campground.name, campground.id)
-        if campground.available:
+        if campground.sites_available:
             logger.debug("Skipping %s (%s) because an available site already found", campground.name, campground.id)
-        elif (not campground.available and scrape_campground(selenium_driver, campground, start_date, num_days)):
-            logger.info("%s (%s) is now available! Adding to email list.", campground.name, campground.id)
+            continue
+        campground.sites_available = scrape_campground(selenium_driver, campground, start_date, num_days, num_sites)
+        if campground.sites_available:
+            logger.info("%s (%s) is now available! Adding to email list and removing from active search list.", campground.name, campground.id)
             campground.available = True
             available.append(campground)
-            logger.debug("\tAdding the following to available list %s", json.dumps(campground.jsonify()))
+            logger.debug("\tAdditional info for new available campground: %s", json.dumps(campground.jsonify()))
+            campground_list.remove(campground)
         else:
             logger.info("%s (%s) is not available, trying again in %s seconds",
                 campground.name, campground.id, RETRY_WAIT)
@@ -131,8 +155,43 @@ def compare_availability(selenium_driver: WebDriver, campground_list: Campground
             err_msg = f"Campground errored more than 5 times in a row, removing it from list:\n{campground.pretty()}"
             logger.error(err_msg)
             campground_list.remove(campground)
-    if len(available) > 0:
-        send_email_alert(available)
+
+    return available
+
+def send_alerts(available_campgrounds: CampgroundList) -> None:
+    """
+    Builds and sends 2 emails:
+      - one for an email alert sent to a convetional email address
+      - one for a text alert sent via carrier email/text gateway
+    
+    :param available_campgrounds: list of newly available sites to send notifications for
+    :returns: True if both email and text notifications succeed, False otherwise.
+    """
+    # build email message
+    email_alert_msg = EmailMessage()
+    email_alert_msg["From"] = GMAIL_USER
+    email_alert_msg["To"] = args.email
+    email_alert_msg["Subject"] = f"Alert for \
+        {len(available_campgrounds)} Available Campground on Recreation.gov"
+    content = "The following campgrounds are now available! Please excuse ugly JSON formatting.\n"
+    content += json.dumps(available_campgrounds.serialize(), indent=4)
+    email_alert_msg.set_content(content)
+
+    # build text message
+    num = args.text
+    to_email = CARRIER_MAP[args.carrier]
+    text_alert_msg = EmailMessage()
+    text_alert_msg["From"] = GMAIL_USER
+    text_alert_msg["To"] = f"{num}@{to_email}"
+    text_alert_msg["Subject"] = f"{len(available_campgrounds)} New Campgrounds Available"
+    content = ""
+    for campground in available_campgrounds:
+        content += f"\n{campground.url}"
+    text_alert_msg.set_content(content)
+
+    # send alerts; retry 5 times if doesn't succeed; exit gracefully if fails repeatedly
+    res = email_notification(email_alert_msg) and email_notification(text_alert_msg)
+    return res
 
 def parse_start_day(arg: str) -> datetime:
     """
@@ -152,9 +211,39 @@ def parse_id_args(arg: str) -> List[str]:
     """
     if arg is not None:
         user_facilities_list = arg.strip().split(",")
-        user_facilities = list(zip(["Name Unknown (User Provided)"]*len(user_facilities_list), user_facilities_list))
+        user_facilities = list(zip(
+            ["Name Unknown (User Provided)"]*len(user_facilities_list), user_facilities_list))
         return user_facilities
     return None
+
+def validate_carrier(arg:str) -> str:
+    """
+    Carrier has to be something that we can map back to a gateway, so
+    check that the entered text is a key in the carrier map dict. Accept
+    mixture of uppercase/lowercase just to be nice.
+
+    :param arg: the user-entered carrier name
+    :returns: lowercase str version of the entered carrier if present in carrier map dict
+    """
+    lowercase_arg = arg.lower()
+    if lowercase_arg not in CARRIER_MAP:
+        logger.error("KeyError: carrier '%s' not found in CARRIER_MAP dict:\n%s",
+                    lowercase_arg,json.dumps(CARRIER_MAP))
+        sys.exit(1)
+    return lowercase_arg
+
+def validate_num_sites(arg:str) -> int:
+    """
+    Number of campsites has to be an integer >= 1 for sanity's sake.
+
+    :param arg: user-entered number of sites
+    :returns: integer >= 1
+    """
+    arg = int(arg)
+    if arg < 1:
+        logger.error("User input for number of campsites (%d) too small (must be > 1)", arg)
+        sys.exit(1)
+    return arg
 
 def run():
     """
@@ -165,22 +254,34 @@ def run():
     ridb_facilities = None
     if None not in ridb_args:
         ridb_facilities = get_facilities_from_ridb(args.lat, args.lon, args.radius)
-    elif None in ridb_args and (args.lat is not None or args.lon is not None or args.radius is not None):
-        ridb_args_error_msg = ("daemon.py:__main__: At least one RIDB argument was passed but at least one "
-            "RIDB arg is missing or None; combination fails. Check CLI args and try again.")
+    elif None in ridb_args and (args.lat is not None or
+                                args.lon is not None or
+                                args.radius is not None):
+        ridb_args_error_msg = ("daemon.py:__main__: At least one RIDB argument was passed but at ",
+                               "least one RIDB arg is missing or None; combination fails. Check ",
+                               "CLI args and try again.")
         raise ValueError(ridb_args_error_msg)
-    campgrounds = get_all_campgrounds_by_id(args.campground_ids, ridb_facilities)
-    logger.info(json.dumps(campgrounds.serialize(), indent=2))
+    search_list = get_all_campgrounds_by_id(args.campground_ids, ridb_facilities)
+    logger.info(json.dumps(search_list.serialize(), indent=2))
 
     driver = create_selenium_driver()
 
-    # check campground availability until stopped by user or start_date has passed
+    # check campground availability until stopped by user OR start_date has passed
+    # OR no more campgrounds in search_list
     while True:
         if args.start_date < datetime.now():
             logger.info("Desired start date has passed, ending process...")
             exit_gracefully(None, None, driver)
-        compare_availability(driver, campgrounds, args.start_date, args.num_days)
-        sleep(RETRY_WAIT)  # sleep for RETRY_WAIT time before checking campgrounds again
+        available = compare_availability(driver, search_list,
+            args.start_date, args.num_days, args.num_sites)
+        if len(available) > 0:
+            if not send_alerts(available):
+                exit_gracefully(None, None, driver)
+        if len(search_list) == 0:
+            logger.info(("All campgrounds to be searched have either been found or ",
+                        "encountered multiple errors, ending process..."))
+            exit_gracefully(None, None, driver)
+        sleep(RETRY_WAIT)  # sleep for RETRY_WAIT time before checking search_list again
 
 if __name__ == "__main__":
     signal(SIGINT, exit_gracefully)     # add custom handler for SIGINT/CTRL-C
@@ -193,6 +294,10 @@ if __name__ == "__main__":
         help="Number of days you want to camp (e.g. 2).")
     parser.add_argument("-e", "--email", type=str, required=True,
         help="Email address at which you want to receive notifications (ex: first.last@example.com).")
+    parser.add_argument("-t", "--text", type=str, required=True,
+        help="Phone number at which you want to receive text notifications (ex: 9998887777).")
+    parser.add_argument("-c", "--carrier", type=validate_carrier, required=True,
+        help="Cell carrier for your phone number, required to send texts (ex: 'at&t', 'verison', 'tmobile','sprint', etc.).")
     parser.add_argument("--lat", type=float,
         help="Latitude of location you want to search for (e.g. 35.994431 for Ponderosa Campground).")
     parser.add_argument("--lon", type=float,
@@ -201,6 +306,8 @@ if __name__ == "__main__":
         help="Radius in miles of the area you want to search, centered on lat/lon (e.g. 25).")
     parser.add_argument("--campground_ids", type=parse_id_args,
         help="Comma-separated list of campground facility IDs you want to check (e.g. `233116,231962`).")
+    parser.add_argument("--num_sites", type=validate_num_sites,
+        help="Number of campsites you need at each campground; defaults to 1, validated to be >0.")
     args = parser.parse_args()
     setup_logging()
     run()
