@@ -23,8 +23,9 @@ def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None):
     :param driver: Selenium WebDriver to close before exiting
     :returns: N/A
     """
-    logger.info(("Received CTRL-C/SIGNINT or daemon completed;",
-                 "exiting gracefully/closing WebDriver if initialized."))
+    exit_msg = ("Received CTRL-C/SIGNINT or daemon completed;",
+                "exiting gracefully/closing WebDriver if initialized.")
+    logger.info(exit_msg)
     if close_this_driver is not None:
         # use quit instead of close to avoid tons of leftover chrome processes
         # https://stackoverflow.com/questions/15067107/difference-between-webdriver-dispose-close-and-quit

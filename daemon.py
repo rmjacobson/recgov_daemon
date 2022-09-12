@@ -163,7 +163,7 @@ def send_alerts(available_campgrounds: CampgroundList) -> None:
     Builds and sends 2 emails:
       - one for an email alert sent to a convetional email address
       - one for a text alert sent via carrier email/text gateway
-    
+
     :param available_campgrounds: list of newly available sites to send notifications for
     :returns: True if both email and text notifications succeed, False otherwise.
     """

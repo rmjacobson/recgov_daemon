@@ -92,12 +92,26 @@ def all_dates_available(df: DataFrame, start_date: datetime,
     # cycle through date columns to check if there's at least `req_available_sites` for each day
     tmp = 100
     at_least_one_available = True
+    if not set(abbr_dates).issubset(set(df.columns)):
+        key_error_str = (f"Dates requested {abbr_dates} don't appear as columns in table; "
+                          "either search has failed or requested dates are not in season.")
+        raise KeyError(key_error_str)
     for col in df[abbr_dates].columns:
-        num_available_sites = df[col].value_counts()["A"]
+        num_available_sites = 0
+        try:
+            num_available_sites = df[col].value_counts()["A"]
+        except KeyError:    # there are no "A" fields -> none available
+            short_circuit_log_msg = (f"Found column (aka date) with no 'A' cells, meaning no "
+                                     f"sites available ({req_available_sites} required); "
+                                     "short-circuit this search of table")
+            logger.debug(short_circuit_log_msg)
+            return False
         at_least_one_available = num_available_sites >= req_available_sites
         if not at_least_one_available:
-            logger.debug(("Found column (aka date) with only %d sites available (%d required); ",
-                          "stopping search of table"), num_available_sites, req_available_sites)
+            short_circuit_log_msg = (f"Found column (aka date) with only {num_available_sites} "
+                                     f"sites available ({req_available_sites} required); "
+                                     "short-circuit this search of table")
+            logger.debug(short_circuit_log_msg)
             return False
         if num_available_sites < tmp:
             tmp = num_available_sites
