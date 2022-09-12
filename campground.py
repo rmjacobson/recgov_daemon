@@ -24,7 +24,9 @@ class Campground():
         Create string to pretty print Campground information.
         """
         # TODO: add self.campsites when available
-        return f"Campground:\n\t{self.name}\n\t{self.id}\n\t{self.url}\n\t{self.sites_available}\n\t{self.error_count}"
+        retstr = f"Campground:\n\t{self.name}\n"
+        retstr += f"\t{self.id}\n\t{self.url}\n\t{self.sites_available}\n\t{self.error_count}"
+        return retstr
 
     def jsonify(self):
         """

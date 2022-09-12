@@ -12,7 +12,6 @@ from datetime import datetime, timedelta
 from time import sleep
 from typing import Tuple
 from pandas.core.frame import DataFrame
-from pyvirtualdisplay import Display
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.webdriver import WebDriver
@@ -42,7 +41,7 @@ PAGE_LOAD_WAIT = 60
 
 def parse_html_table(table: BeautifulSoup) -> DataFrame:
     """
-    Parse Beautifulsoup representation of recreation.gov availability table into a pandas dataframe.
+    Parse Beautifulsoup of recreation.gov availability table into a pandas dataframe.
 
     :param table: BeautifulSoup object containing just the availability table HTML
     :returns: pandas dataframe containing column names and row data
@@ -50,14 +49,16 @@ def parse_html_table(table: BeautifulSoup) -> DataFrame:
     column_names = []
     recgov_row_tags = ['td', 'th']
 
-    # get column names from the "second" row of the <thead> tag because the "first" row just contains the month string
+    # get column names from the "second" row of the <thead> tag because
+    # the "first" row just contains the month string
     column_tags = table.find("thead").find_all("tr")
     columns = column_tags[1].find_all('th')
     if len(columns) > 0 and len(column_names) == 0:
         for h_tag in columns:
             column_names.append(h_tag.get_text())
 
-    # read rows in <tbody> tag for availability data, remove camp name icon if necessary to reduce confusing text
+    # read rows in <tbody> tag for availability data, remove camp name
+    # icon if necessary to reduce confusing text
     body_tag = table.find("tbody")
     rows = body_tag.find_all("tr")
     df = DataFrame(columns=column_names, index=range(0,len(rows)))
@@ -70,7 +71,8 @@ def parse_html_table(table: BeautifulSoup) -> DataFrame:
             df.iat[row_idx,cell_idx] = cell.get_text()
     return df
 
-def all_dates_available(df: DataFrame, start_date: datetime, num_days: int, req_available_sites: int = 1) -> bool:
+def all_dates_available(df: DataFrame, start_date: datetime,
+        num_days: int, req_available_sites: int = 1) -> bool:
     """
     Parse pandas DataFrame for the specific date columns matching the start date and number
     of nights we want to stay, search for 'A' string in df cells. Return True if every column
@@ -94,7 +96,8 @@ def all_dates_available(df: DataFrame, start_date: datetime, num_days: int, req_
         num_available_sites = df[col].value_counts()["A"]
         at_least_one_available = num_available_sites >= req_available_sites
         if not at_least_one_available:
-            logger.debug("Found column (aka date) with only %d sites available (%d required); stopping search of table", num_available_sites, req_available_sites)
+            logger.debug(("Found column (aka date) with only %d sites available (%d required); ",
+                          "stopping search of table"), num_available_sites, req_available_sites)
             return False
         if num_available_sites < tmp:
             tmp = num_available_sites
@@ -116,7 +119,7 @@ def create_selenium_driver(headless: bool=True) -> WebDriver:
         options.add_argument("--headless")
     options.add_argument("--remote-debugging-port=9222")    # necessary for driving Chromium actions
     options.binary_location = "/usr/bin/chromium-browser"   # browser is Chromium instead of Chrome
-    driver_path = "/usr/lib/chromium-browser/chromedriver"  # we use custom chromedriver for raspberry
+    driver_path = "/usr/lib/chromium-browser/chromedriver"  # we use custom chromedriver for rpi
     driver = webdriver.Chrome(options=options, service=Service(driver_path))
     driver.implicitly_wait(PAGE_LOAD_WAIT)
     return driver
@@ -125,17 +128,21 @@ def wait_for_page_element_load(driver: WebDriver, elem_id: str):
     """
     Force WebDriver to wait for element to load before continuing. Timeout of PAGE_LOAD_WAIT
     (defaults to 60s).
-    https://www.guru99.com/implicit-explicit-waits-selenium.html -- explanation of selenium wait types
+
+    Use EC.visibility_of_element_located instead of EC.presence_of_element_located because table
+    must be visible to be populated. See below for explanation of selenium wait types:
+    https://www.guru99.com/implicit-explicit-waits-selenium.html
 
     :param driver: WebDriver object we are forcing to wait
     :param elem_id: element id string we want to wait for
-    :returns: webdriver element that has correctly loaded
+    :returns: WebDriver element that has correctly loaded
     """
     try:
-        # loaded_elem = WebDriverWait(driver, PAGE_LOAD_WAIT).until(EC.presence_of_element_located((By.ID, elem_id)))
-        return WebDriverWait(driver, PAGE_LOAD_WAIT).until(EC.visibility_of_element_located((By.ID, elem_id)))
+        return WebDriverWait(driver, PAGE_LOAD_WAIT).until(
+                EC.visibility_of_element_located((By.ID, elem_id)))
     except TimeoutException:
-        logger.exception("Loading %s element on page took too much time; skipping this load.", elem_id)
+        logger.exception("Loading %s element on page took too much time; skipping this load.",
+                         elem_id)
         return None
 
 def enter_date_input(date: datetime, date_input):
@@ -171,7 +178,8 @@ def is_bad_date(driver: WebDriver, element_id) -> Tuple[bool, str]:
         return (True, "new error")
     return (False, "all good")
 
-def scrape_campground(driver: WebDriver, campground: Campground, start_date: datetime, num_days: int, num_sites: int = 1) -> bool:
+def scrape_campground(driver: WebDriver, campground: Campground, start_date: datetime,
+                      num_days: int, num_sites: int = 1) -> bool:
     """
     Use Selenium WebDriver to load page, input desired start date, identify availability table
     for new data, use BeautifulSoup to parse html table, and use pandas DataFrame to identify
@@ -200,32 +208,35 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
         logger.debug("\tGetting campground.url (%s) with driver", campground.url)
         driver.get(campground.url)
 
-        try:        # check for tutorial window and close it if it appears, otherwise table doesn't load correctly
-            tutorial_close_button = driver.find_element(by=By.XPATH, value=TUTORIAL_CLOSE_BUTTON_XPATH)
+        try:
+            # check for tutorial window, close if present, otherwise table doesn't load correctly
+            tutorial_close_button = driver.find_element(
+                by=By.XPATH, value=TUTORIAL_CLOSE_BUTTON_XPATH)
             logger.debug("\tClosing tutorial window")
             tutorial_close_button.click()
         except NoSuchElementException:
+            # we don't actually care if tutorial didn't appear, just move on
             logger.debug("\tNo tutorial this time")
-            pass    # we don't actually care if tutorial didn't appear, just move on
 
         logger.debug("\tFinding input box tag")
         start_date_input = wait_for_page_element_load(driver, START_DATE_INPUT_TAG_NAME)
-        if start_date_input is None:  # if wait for page element load fails -> abandon this check immediately
+        if start_date_input is None:  # if wait for page element load fails -> abandon check
             return False
         logger.debug("\tInputting start/end dates with send_keys")
         enter_date_input(start_date, start_date_input)
 
         end_date = start_date + timedelta(days=num_days)
         end_date_input = wait_for_page_element_load(driver, END_DATE_INPUT_TAG_NAME)
-        if end_date_input is None:  # if wait for page element load fails -> abandon this check immediately
+        if end_date_input is None:  # if wait for page element load fails -> abandon check
             return False
         enter_date_input(end_date, end_date_input)
 
-        # wait for table refresh/loading spinning wheel to disappear, otherwise table contents are gibberish/NaN
+        # wait for table loading spinning wheel to disappear, otherwise table contents are NaN
         # https://stackoverflow.com/a/29084080 -- wait for element to *not* be visible
         # https://stackoverflow.com/a/51884408 -- wait for element not to be visible even though it
         # may already be invisible
-        # https://stackoverflow.com/a/45420111 -- temporarily kill implicit waits to make explicit wait work corectly
+        # https://stackoverflow.com/a/45420111 -- temporarily kill implicit waits to make explicit
+        # wait work corectly
         driver.implicitly_wait(0)
         WebDriverWait(driver, PAGE_LOAD_WAIT).until(EC.invisibility_of_element_located(
             (By.CLASS_NAME, TABLE_LOADING_TAG_CLASS)))
@@ -233,7 +244,7 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
 
         logger.debug("\tFinding availability table tag")
         availability_table = wait_for_page_element_load(driver, AVAILABILITY_TABLE_TAG_NAME)
-        if availability_table is None:  # if wait for page element load fails -> abandon this check immediately
+        if availability_table is None:  # if page load wait fails -> abandon check immediately
             return False
         table_html = availability_table.get_attribute('outerHTML')
         soup = BeautifulSoup(table_html, 'html.parser')
@@ -241,9 +252,12 @@ def scrape_campground(driver: WebDriver, campground: Campground, start_date: dat
         num_sites_available = all_dates_available(df, start_date, num_days, num_sites)
         campground.error_count = 0      # if not errored -> reset error count to 0
         return num_sites_available
-    except Exception as e:
+    # don't usually want to ignore these, but this block is so huge it's unavoidable for now
+    # pylint: disable-next=broad-except
+    except Exception as exp:
         campground.error_count += 1     # if errored -> inc error count
-        logger.exception("Campground %s (%s) parsing error!\n%s", campground.name, campground.id, e)
+        logger.exception("Campground %s (%s) parsing error!\n%s",
+                         campground.name, campground.id, exp)
         logger.exception(str(traceback.format_exc()))
         return False
 

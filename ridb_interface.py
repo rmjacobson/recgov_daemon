@@ -49,7 +49,7 @@ def get_facilities_from_ridb(latitude: float, longitude: float, radius: int):
     }
 
     logger.debug("\tUse requests library to retrieve facilities from RIDB API")
-    resp = requests.get(RIDB_BASE_URL, headers=headers, params=facilities_query)
+    resp = requests.get(RIDB_BASE_URL, headers=headers, params=facilities_query, timeout=60)
     if not resp.ok:
         raise ValueError("Unable to access RIDB API. Check connection and API key.")
     try:
@@ -61,10 +61,10 @@ def get_facilities_from_ridb(latitude: float, longitude: float, radius: int):
 
     # Construct list of campground names/facility IDs from ridb response
     facilities = []
-    for idx,campsite in enumerate(res):
+    for campsite in res:
         try:
             facility_id = str(campsite[FACILITY_ID_FIELD])
-            name = " ".join(w.capitalize() for w in res[idx][FACILITY_NAME_FIELD].split())
+            name = " ".join(w.capitalize() for w in campsite[FACILITY_NAME_FIELD].split())
             facilities.append((name, facility_id))
         except KeyError as err:
             err_msg = "No %s or %s field in campground dict. Check RIDB API specs."
@@ -77,12 +77,13 @@ def run():
     """
     Runs the RIDB interface module for specific values, should be used for debugging only.
     """
-    lat = 35.994431     # these are the coordinates for Ponderosa Campground
-    lon = -121.394325
-    radius = 20
+    # lat = 35.994431       # these are the coordinates for Ponderosa Campground
+    # lon = -121.394325
+    lat = 38.951209         # coordinates for Emerald Bay, Lake Tahoe
+    lon = -120.106420
+    radius = 10
     campgrounds = get_facilities_from_ridb(lat, lon, radius)
-    for camp in campgrounds:
-        camp.print()
+    print(campgrounds)
 
 if __name__ == "__main__":
     run()

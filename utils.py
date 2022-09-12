@@ -11,6 +11,7 @@ from selenium.webdriver.chrome.webdriver import WebDriver
 
 logger = logging.getLogger(__name__)
 
+# pylint: disable-next=unused-argument
 def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None):
     """
     Handler for SIGINT that will close webdriver carefully if necessary.
@@ -22,7 +23,8 @@ def exit_gracefully(signal_received, frame, close_this_driver: WebDriver=None):
     :param driver: Selenium WebDriver to close before exiting
     :returns: N/A
     """
-    logger.info("Received CTRL-C/SIGNINT or daemon completed; exiting gracefully/closing WebDriver if initialized.")
+    logger.info(("Received CTRL-C/SIGNINT or daemon completed;",
+                 "exiting gracefully/closing WebDriver if initialized."))
     if close_this_driver is not None:
         # use quit instead of close to avoid tons of leftover chrome processes
         # https://stackoverflow.com/questions/15067107/difference-between-webdriver-dispose-close-and-quit
@@ -58,7 +60,7 @@ def setup_logging() -> None:
     Python 3 logging is annoyingly confusing because of how inheiritance from the root logger works
     and how multiple modules all need to log to the same file. It's also annoying that no tutorial
     or official doc agrees on what is "best practice" between manually naming the loggers across
-    modules vs. using __name__, or whether or not it's best practice to create config/ini files, etc.
+    modules vs. using __name__, or if it's best practice to create config/ini files, etc.
 
     For this project, I have chosen to programatically configure logging as below, using basicConfig
     to also reconfigure the root logger (which affects Selenium mostly), and have other modules get
@@ -81,7 +83,8 @@ def setup_logging() -> None:
     Generic Logging Principles:
     - https://peter.bourgon.org/blog/2017/02/21/metrics-tracing-and-logging.html
     """
-    rotating_handler = TimedRotatingFileHandler("logs/recgov.log", when="d", interval=1,  backupCount=5)
+    rotating_handler = TimedRotatingFileHandler("logs/recgov.log",
+                                                when="d", interval=1, backupCount=5)
     rotating_handler.suffix = "%Y-%m-%d"
     logging.basicConfig(
         handlers=[rotating_handler],
