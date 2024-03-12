@@ -2,6 +2,10 @@
 
 Python app to check the recreation.gov Recreation Information Database (RIDB) for a variable set of campsites and notify given email address when campsite availability changes. Creation inspired by looking at campgrounds on recreation.gov after to the 2020 pandemic and finding that every campground in the entire Sierra Nevada mountain range was booked for every weekend until 6 months out. This is useful if you have a campground you want to visit at a specific time, but there's no current availability. If this daemon is running when somebody cancels their reservation, you will get an email and might be able to act on it quicker than others.
 
+## Notice: Development Suspended as of December 2023
+
+recreation.gov has implemented a native "Availability Alert" feature that emails users when campsites become available. It has almost all the same features as this project does, with the sole exception of text alerts. Thus, this project no longer serves a purpose. Thanks to everybody who has used it or been inspired by it! I'm leaving the repo up in case anybody finds the resources helpful for their own web scraping projects.
+
 ## Installation
 
 After cloning this repo, follow the below steps to create a virtual environment and a logfile directory for recgov_daemon:
