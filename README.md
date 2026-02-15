@@ -6,6 +6,8 @@ Python app to check the recreation.gov Recreation Information Database (RIDB) fo
 
 recreation.gov has implemented a native "Availability Alert" feature that emails users when campsites become available. It has almost all the same features as this project does, with the sole exception of text alerts. Thus, this project no longer serves a purpose. Thanks to everybody who has used it or been inspired by it! I'm leaving the repo up in case anybody finds the resources helpful for their own web scraping projects.
 
+Update February 2026: archiving this project to stop getting GitHub emails about it.
+
 ## Installation
 
 After cloning this repo, follow the below steps to create a virtual environment and a logfile directory for recgov_daemon:
